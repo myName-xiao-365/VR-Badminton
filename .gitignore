@@ -45,3 +45,6 @@ crashlytics-build.properties
 # Temporary auto-generated data
 [Aa]ssets/StreamingAssets/aa.meta
 [Aa]ssets/StreamingAssets/aa/*
+
+# Local reference project (separate Git repository)
+/WebDemo/
