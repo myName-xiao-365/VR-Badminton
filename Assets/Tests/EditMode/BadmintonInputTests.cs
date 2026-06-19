@@ -73,11 +73,111 @@ namespace VRBadminton.Tests
             Assert.IsTrue(frame.RightHand.Visible);
             Assert.Greater(frame.RightHand.Height, 0.5f);
 
-            BadmintonPlayerFrame shifted = mapper.BuildFrame(Pose(0.44f, 1.18f, 0.24f), 1400, "camera-test");
+            BadmintonPlayerFrame shiftedRight = mapper.BuildFrame(Pose(0.44f, 1.18f, 0.24f), 1400, "camera-test");
 
-            Assert.AreNotEqual(0f, shifted.VirtualPosition.x);
-            Assert.Greater(shifted.VirtualPosition.z, 0f);
-            Assert.AreEqual("right_hand", shifted.RightHand.Source);
+            Assert.Greater(shiftedRight.VirtualPosition.x, 0f);
+            Assert.Greater(shiftedRight.VirtualPosition.z, 0f);
+            Assert.AreEqual("right_hand", shiftedRight.RightHand.Source);
+        }
+
+        [Test]
+        public void PoseMapperConvertsUnmirroredCameraHorizontalDirection()
+        {
+            BadmintonPoseLandmarkMapper rightMapper = CalibratedPoseMapper();
+            BadmintonPoseLandmarkMapper leftMapper = CalibratedPoseMapper();
+
+            BadmintonPlayerFrame rightFrame = rightMapper.BuildFrame(Pose(0.44f, 1f, 0.35f), 1600, "camera-test");
+            BadmintonPlayerFrame leftFrame = leftMapper.BuildFrame(Pose(0.56f, 1f, 0.35f), 1600, "camera-test");
+
+            Assert.Greater(rightFrame.VirtualPosition.x, 0f);
+            Assert.Less(leftFrame.VirtualPosition.x, 0f);
+        }
+
+        [Test]
+        public void PoseMapperRaisesRightHandWhenLandmarkMovesUp()
+        {
+            BadmintonPoseLandmarkMapper highMapper = CalibratedPoseMapper();
+            BadmintonPoseLandmarkMapper lowMapper = CalibratedPoseMapper();
+
+            BadmintonPlayerFrame highHand = highMapper.BuildFrame(Pose(0.5f, 1f, 0.24f), 1700, "camera-test");
+            BadmintonPlayerFrame lowHand = lowMapper.BuildFrame(Pose(0.5f, 1f, 0.55f), 1700, "camera-test");
+
+            Assert.IsTrue(highHand.RightHand.Visible);
+            Assert.IsTrue(lowHand.RightHand.Visible);
+            Assert.Greater(highHand.RightHand.Height, lowHand.RightHand.Height);
+        }
+
+        [Test]
+        public void PoseMapperKeepsRightHandHeightContinuousWhenYIsMirrored()
+        {
+            BadmintonPoseLandmarkMapper mapper = new BadmintonPoseLandmarkMapper();
+            List<BadmintonPoseLandmark> neutral = VerticallyMirrored(Pose(0.5f, 1f, 0.35f));
+            for (int i = 0; i < 9; i++)
+            {
+                mapper.BuildFrame(neutral, 2000 + i * 33, "camera-test");
+            }
+
+            BadmintonPlayerFrame lowHand = mapper.BuildFrame(
+                VerticallyMirrored(Pose(0.5f, 1f, 0.55f)),
+                2400,
+                "camera-test");
+            BadmintonPlayerFrame midHand = mapper.BuildFrame(
+                VerticallyMirrored(Pose(0.5f, 1f, 0.40f)),
+                2433,
+                "camera-test");
+            BadmintonPlayerFrame highHand = mapper.BuildFrame(
+                VerticallyMirrored(Pose(0.5f, 1f, 0.24f)),
+                2466,
+                "camera-test");
+
+            Assert.Less(lowHand.RightHand.Height, midHand.RightHand.Height);
+            Assert.Less(midHand.RightHand.Height, highHand.RightHand.Height);
+            Assert.Greater(highHand.RightHand.Height - lowHand.RightHand.Height, 0.2f);
+        }
+
+        [Test]
+        public void MediaPipeProviderAdapterMapsLandmarksThroughPoseMapper()
+        {
+            using MediaPipePoseInputProvider provider = new MediaPipePoseInputProvider();
+            BadmintonPlayerFrame frame = BadmintonPlayerFrame.Default();
+
+            for (int i = 0; i < 9; i++)
+            {
+                frame = provider.MapLandmarksForPluginAdapter(Pose(0.5f, 1f, 0.35f), 2000 + i * 33);
+            }
+
+            Assert.IsTrue(provider.Running);
+            Assert.IsTrue(frame.Visible);
+            Assert.IsTrue(frame.Calibrated);
+            Assert.IsTrue(frame.RightHand.Visible);
+            Assert.AreEqual("unity-camera", frame.ClientId);
+            Assert.IsTrue(provider.PreviewPoseVisible);
+            Assert.AreEqual(33, provider.PreviewLandmarks.Length);
+            Assert.AreEqual(2000 + 8 * 33, provider.PreviewTimestamp);
+            Assert.IsTrue(provider.Status.Contains("pose"));
+        }
+
+        [Test]
+        public void MediaPipeProviderAdapterMarksLostPoseAsHoldFrame()
+        {
+            using MediaPipePoseInputProvider provider = new MediaPipePoseInputProvider();
+            BadmintonPlayerFrame visible = BadmintonPlayerFrame.Default();
+
+            for (int i = 0; i < 9; i++)
+            {
+                visible = provider.MapLandmarksForPluginAdapter(Pose(0.5f, 1f, 0.35f), 3000 + i * 33);
+            }
+
+            BadmintonPlayerFrame lost = provider.MapLandmarksForPluginAdapter(new List<BadmintonPoseLandmark>(), 3400);
+
+            Assert.IsTrue(visible.Visible);
+            Assert.IsFalse(lost.Visible);
+            Assert.IsFalse(provider.PreviewPoseVisible);
+            Assert.AreEqual(0, provider.PreviewLandmarks.Length);
+            Assert.AreEqual(3400, provider.PreviewTimestamp);
+            Assert.AreEqual("lost_hold", lost.TrackingBasis);
+            Assert.AreEqual(visible.VirtualPosition.x, lost.VirtualPosition.x, 0.001f);
+            Assert.IsTrue(provider.Status.Contains("lost"));
         }
 
         [Test]
@@ -166,6 +266,29 @@ namespace VRBadminton.Tests
             landmarks[BadmintonPoseLandmarkMapper.RightPinky] = new BadmintonPoseLandmark(centerX - shoulderWidth * 1.12f, handY + 0.03f, 0.9f);
             landmarks[BadmintonPoseLandmarkMapper.RightThumb] = new BadmintonPoseLandmark(centerX - shoulderWidth * 1.22f, handY + 0.015f, 0.9f);
             return landmarks;
+        }
+
+        private static List<BadmintonPoseLandmark> VerticallyMirrored(List<BadmintonPoseLandmark> landmarks)
+        {
+            List<BadmintonPoseLandmark> mirrored = new List<BadmintonPoseLandmark>(landmarks.Count);
+            foreach (BadmintonPoseLandmark landmark in landmarks)
+            {
+                mirrored.Add(new BadmintonPoseLandmark(landmark.X, 1f - landmark.Y, landmark.Visibility));
+            }
+
+            return mirrored;
+        }
+
+        private static BadmintonPoseLandmarkMapper CalibratedPoseMapper()
+        {
+            BadmintonPoseLandmarkMapper mapper = new BadmintonPoseLandmarkMapper();
+            List<BadmintonPoseLandmark> neutral = Pose(0.5f, 1f, 0.35f);
+            for (int i = 0; i < 9; i++)
+            {
+                mapper.BuildFrame(neutral, 1000 + i * 33, "camera-test");
+            }
+
+            return mapper;
         }
     }
 }

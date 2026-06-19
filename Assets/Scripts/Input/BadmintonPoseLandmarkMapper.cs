@@ -332,7 +332,12 @@ namespace VRBadminton.Input
                 return BadmintonRightHand.Default();
             }
 
-            float heightSpan = Mathf.Max(hipY - headY, 0.000001f);
+            float heightSpan = hipY - headY;
+            if (Mathf.Abs(heightSpan) < 0.000001f)
+            {
+                heightSpan = heightSpan < 0f ? -0.000001f : 0.000001f;
+            }
+
             float height = Mathf.Clamp((hipY - landmark.y) / heightSpan, -0.12f, 1.25f);
             float lateral = Mathf.Clamp(
                 (landmark.x - center.x) * ImageToUserXSign / Mathf.Max(shoulderWidth, 0.000001f),

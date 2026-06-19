@@ -33,6 +33,15 @@ namespace VRBadminton.Gameplay
         }
 
         private const float CourtLengthScale = 0.95f;
+        private static readonly int[] PosePreviewBonePairs =
+        {
+            11, 12,
+            11, 13, 13, 15, 15, 17, 15, 19, 15, 21, 17, 19,
+            12, 14, 14, 16, 16, 18, 16, 20, 16, 22, 18, 20,
+            11, 23, 12, 24, 23, 24,
+            23, 25, 25, 27, 27, 29, 27, 31, 29, 31,
+            24, 26, 26, 28, 28, 30, 28, 32, 30, 32
+        };
 
         [Header("Feed Timing")]
         [SerializeField] private float firstFeedDelay = 1f;
@@ -486,6 +495,7 @@ namespace VRBadminton.Gameplay
 
             DrawModeAndDifficulty();
             DrawInputStatus();
+            DrawCameraPreview();
 
             float staminaRatio = opponentMaxStamina <= 0f
                 ? 0f
@@ -648,6 +658,183 @@ namespace VRBadminton.Gameplay
                     ? "Phone URL: unavailable"
                     : $"Phone URL: {inputSnapshot.PhoneUrl}",
                 statusStyle);
+        }
+
+        private void DrawCameraPreview()
+        {
+            if (inputMode != BadmintonInputMode.Sensor)
+            {
+                return;
+            }
+
+            const float margin = 18f;
+            float panelWidth = Mathf.Clamp(Screen.width * 0.24f, 220f, 360f);
+            panelWidth = Mathf.Min(panelWidth, Screen.width - margin * 2f);
+            float panelHeight = panelWidth * 9f / 16f;
+            float panelY = Screen.height - panelHeight - margin;
+
+            if (panelY < 372f)
+            {
+                panelHeight = Mathf.Min(panelHeight, Mathf.Max(96f, Screen.height - 372f - margin));
+                panelWidth = panelHeight * 16f / 9f;
+                panelY = Screen.height - panelHeight - margin;
+            }
+
+            Rect panelRect = new Rect(margin, panelY, panelWidth, panelHeight);
+            Color previousColor = GUI.color;
+            Matrix4x4 previousMatrix = GUI.matrix;
+
+            GUI.color = new Color(0.03f, 0.04f, 0.05f, 0.88f);
+            GUI.DrawTexture(panelRect, Texture2D.whiteTexture);
+
+            Texture preview = inputSnapshot.CameraPreviewTexture;
+            if (preview == null || preview.width <= 16 || preview.height <= 16)
+            {
+                GUI.color = new Color(0.82f, 0.86f, 0.9f, 0.82f);
+                GUI.Label(
+                    new Rect(panelRect.x + 10f, panelRect.y + panelRect.height * 0.5f - 10f, panelRect.width - 20f, 20f),
+                    "Camera warming up",
+                    uiLabelStyle);
+                GUI.color = previousColor;
+                GUI.matrix = previousMatrix;
+                return;
+            }
+
+            Rect imageRect = FitRect(panelRect, preview.width / Mathf.Max(1f, (float)preview.height));
+            GUI.color = Color.white;
+            GUI.DrawTextureWithTexCoords(
+                imageRect,
+                preview,
+                PreviewTexCoords(inputSnapshot.CameraPreviewFlipHorizontally),
+                true);
+
+            DrawPosePreviewSkeleton(
+                imageRect,
+                inputSnapshot.CameraPreviewLandmarks,
+                inputSnapshot.CameraPreviewFlipHorizontally);
+
+            GUI.matrix = previousMatrix;
+            GUI.color = previousColor;
+        }
+
+        private void DrawPosePreviewSkeleton(
+            Rect imageRect,
+            BadmintonPoseLandmark[] landmarks,
+            bool flipHorizontally)
+        {
+            if (!inputSnapshot.CameraPreviewPoseVisible ||
+                landmarks == null ||
+                landmarks.Length < 33)
+            {
+                return;
+            }
+
+            for (int i = 0; i < PosePreviewBonePairs.Length; i += 2)
+            {
+                int from = PosePreviewBonePairs[i];
+                int to = PosePreviewBonePairs[i + 1];
+                if (!IsPreviewLandmarkVisible(landmarks, from) || !IsPreviewLandmarkVisible(landmarks, to))
+                {
+                    continue;
+                }
+
+                DrawGuiLine(
+                    LandmarkToPreviewPoint(landmarks[from], imageRect, flipHorizontally),
+                    LandmarkToPreviewPoint(landmarks[to], imageRect, flipHorizontally),
+                    new Color(0.15f, 1f, 0.88f, 0.92f),
+                    2f);
+            }
+
+            for (int i = 0; i < landmarks.Length; i++)
+            {
+                if (!IsPreviewLandmarkVisible(landmarks, i))
+                {
+                    continue;
+                }
+
+                Vector2 point = LandmarkToPreviewPoint(landmarks[i], imageRect, flipHorizontally);
+                float size = i == BadmintonPoseLandmarkMapper.RightWrist ||
+                             i == BadmintonPoseLandmarkMapper.RightIndex ||
+                             i == BadmintonPoseLandmarkMapper.RightPinky ||
+                             i == BadmintonPoseLandmarkMapper.RightThumb
+                    ? 5f
+                    : 3.5f;
+                GUI.color = i == BadmintonPoseLandmarkMapper.RightWrist ||
+                            i == BadmintonPoseLandmarkMapper.RightIndex ||
+                            i == BadmintonPoseLandmarkMapper.RightPinky ||
+                            i == BadmintonPoseLandmarkMapper.RightThumb
+                    ? new Color(1f, 0.82f, 0.2f, 0.96f)
+                    : new Color(1f, 1f, 1f, 0.92f);
+                GUI.DrawTexture(new Rect(point.x - size * 0.5f, point.y - size * 0.5f, size, size), Texture2D.whiteTexture);
+            }
+        }
+
+        private static Rect FitRect(Rect bounds, float aspect)
+        {
+            float safeAspect = Mathf.Max(0.01f, aspect);
+            float boundsAspect = bounds.width / Mathf.Max(1f, bounds.height);
+            if (safeAspect > boundsAspect)
+            {
+                float height = bounds.width / safeAspect;
+                return new Rect(bounds.x, bounds.y + (bounds.height - height) * 0.5f, bounds.width, height);
+            }
+
+            float width = bounds.height * safeAspect;
+            return new Rect(bounds.x + (bounds.width - width) * 0.5f, bounds.y, width, bounds.height);
+        }
+
+        private static bool IsPreviewLandmarkVisible(BadmintonPoseLandmark[] landmarks, int index)
+        {
+            return index >= 0 &&
+                   index < landmarks.Length &&
+                   landmarks[index].Visibility >= 0.25f;
+        }
+
+        private static Vector2 LandmarkToPreviewPoint(
+            BadmintonPoseLandmark landmark,
+            Rect imageRect,
+            bool flipHorizontally)
+        {
+            float x = Mathf.Clamp01(landmark.X);
+            float y = Mathf.Clamp01(landmark.Y);
+            if (flipHorizontally)
+            {
+                x = 1f - x;
+            }
+
+            // Preview uses GUI y-down coordinates, while gameplay landmarks are normalized y-up.
+            y = 1f - y;
+
+            return new Vector2(
+                imageRect.x + x * imageRect.width,
+                imageRect.y + y * imageRect.height);
+        }
+
+        private static Rect PreviewTexCoords(bool flipHorizontally)
+        {
+            return new Rect(
+                flipHorizontally ? 1f : 0f,
+                0f,
+                flipHorizontally ? -1f : 1f,
+                1f);
+        }
+
+        private static void DrawGuiLine(Vector2 start, Vector2 end, Color color, float width)
+        {
+            Vector2 delta = end - start;
+            float length = delta.magnitude;
+            if (length <= 0.01f)
+            {
+                return;
+            }
+
+            Color previousColor = GUI.color;
+            Matrix4x4 previousMatrix = GUI.matrix;
+            GUI.color = color;
+            GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, start);
+            GUI.DrawTexture(new Rect(start.x, start.y - width * 0.5f, length, width), Texture2D.whiteTexture);
+            GUI.matrix = previousMatrix;
+            GUI.color = previousColor;
         }
 
         private void SetGameMode(GameMode mode)

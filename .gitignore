@@ -46,5 +46,8 @@ crashlytics-build.properties
 [Aa]ssets/StreamingAssets/aa.meta
 [Aa]ssets/StreamingAssets/aa/*
 
+# Large local Unity package cache
+.packages/
+
 # Local reference project (separate Git repository)
 /WebDemo/

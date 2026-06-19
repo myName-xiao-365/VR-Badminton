@@ -177,7 +177,13 @@ namespace VRBadminton.Input
         public string Status;
         public string CameraStatus;
         public string PhoneStatus;
+        public string CameraUrl;
         public string PhoneUrl;
+        public Texture CameraPreviewTexture;
+        public BadmintonPoseLandmark[] CameraPreviewLandmarks;
+        public bool CameraPreviewFlipHorizontally;
+        public bool CameraPreviewPoseVisible;
+        public long CameraPreviewTimestamp;
         public bool CameraRunning;
         public bool PhoneConnected;
         public bool Calibrated;
@@ -205,7 +211,13 @@ namespace VRBadminton.Input
                 Status = "Input idle",
                 CameraStatus = "Camera idle",
                 PhoneStatus = "Phone idle",
+                CameraUrl = string.Empty,
                 PhoneUrl = string.Empty,
+                CameraPreviewTexture = null,
+                CameraPreviewLandmarks = Array.Empty<BadmintonPoseLandmark>(),
+                CameraPreviewFlipHorizontally = false,
+                CameraPreviewPoseVisible = false,
+                CameraPreviewTimestamp = 0,
                 CameraRunning = false,
                 PhoneConnected = false,
                 Calibrated = false
