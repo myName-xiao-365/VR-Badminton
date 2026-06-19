@@ -3,7 +3,10 @@
 [Tt]emp/
 [Oo]bj/
 [Bb]uild/
-[Bb]uilds/
+[Bb]uilds/*
+![Bb]uilds/.gitkeep
+![Bb]uilds/README.md
+![Bb]uilds/游戏操作指南与规则.md
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
 
