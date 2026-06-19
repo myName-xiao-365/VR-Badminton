@@ -2763,7 +2763,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 48
+  field of view: 40
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -2789,13 +2789,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 963194225}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.2405001, y: -0.33036345, z: 0.08745458, w: 0.90849954}
-  m_LocalPosition: {x: 8.8, y: 8.2, z: -10.5}
+  m_LocalRotation: {x: 0.2669336, y: 0, z: 0, w: 0.9637149}
+  m_LocalPosition: {x: 0, y: 6.9, z: -12.1}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 30.963757, y: 0, z: 0}
 --- !u!1 &1012720230
 GameObject:
   m_ObjectHideFlags: 0
@@ -5249,11 +5249,41 @@ MonoBehaviour:
   speedAfterNet: 0.68
   opponentSmashSpeedBeforeNet: 0.7
   opponentSmashSpeedAfterNet: 0.25
-  playerPositionRadius: 0.85
+  backcourtPositionInset: 0.45
   racketXAlignmentTolerance: 0.6
   contactWindow: 0.58
   racketFollowSpeed: 14
   racketMoveSpeed: 4.8
+  racketSweetHalfWidth: 0.36
+  racketSweetHalfHeight: 0.46
+  racketAssistShell: 0.3
+  racketMagnetRadius: 0.22
+  racketPlaneTolerance: 0.34
+  racketMagnetPlaneTolerance: 0.14
+  hitBacktrackSeconds: 0.18
+  hitHistorySeconds: 0.32
+  minimumHitQuality: 0.42
+  showHitDebug: 0
+  useSwitchStyleCamera: 1
+  gameplayCameraOverride: {fileID: 963194227}
+  forceSwitchCameraPreset: 1
+  switchCameraPosition: {x: 0, y: 6.9, z: -12.1}
+  switchCameraLookAt: {x: 0, y: 1.05, z: -2.35}
+  switchCameraFieldOfView: 40
+  switchCameraLateralFollow: 0.78
+  switchCameraMaxLateralOffset: 2.4
+  switchCameraDepthFollow: 0.28
+  switchCameraMaxDepthOffset: 0.9
+  switchCameraFollowSpeed: 12
+  switchCameraPresetVersion: 10
+  inputMode: 0
+  sensorPhonePort: 8092
+  sensorAngularSpeedToGameSpeed: 4
+  sensorLateralScale: 1.35
+  sensorDepthScale: 1.45
+  sensorBackcourtDepthBoost: 1.32
+  sensorHandHeightScale: 1.1
+  sensorHandLateralScale: 0.25
   opponentMoveSpeed: 4.2
   opponentReachTolerance: 0.22
   opponentRacketGroundHeight: 0.72

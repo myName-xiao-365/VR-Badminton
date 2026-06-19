@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using VRBadminton.Input;
 
@@ -57,11 +58,37 @@ namespace VRBadminton.Gameplay
         [SerializeField, Range(0.1f, 0.8f)] private float opponentSmashSpeedAfterNet = 0.25f;
 
         [Header("Hit Assist")]
-        [SerializeField] private float playerPositionRadius = 0.85f;
+        [SerializeField] private float backcourtPositionInset = 0.45f;
         [SerializeField] private float racketXAlignmentTolerance = 0.6f;
         [SerializeField] private float contactWindow = 0.58f;
         [SerializeField] private float racketFollowSpeed = 14f;
         [SerializeField] private float racketMoveSpeed = 4.8f;
+
+        [Header("Hit Resolver")]
+        [SerializeField] private float racketSweetHalfWidth = 0.36f;
+        [SerializeField] private float racketSweetHalfHeight = 0.46f;
+        [SerializeField] private float racketAssistShell = 0.30f;
+        [SerializeField] private float racketMagnetRadius = 0.22f;
+        [SerializeField] private float racketPlaneTolerance = 0.34f;
+        [SerializeField] private float racketMagnetPlaneTolerance = 0.14f;
+        [SerializeField] private float hitBacktrackSeconds = 0.18f;
+        [SerializeField] private float hitHistorySeconds = 0.32f;
+        [SerializeField, Range(0.1f, 0.9f)] private float minimumHitQuality = 0.42f;
+        [SerializeField] private bool showHitDebug;
+
+        [Header("Camera View")]
+        [SerializeField] private bool useSwitchStyleCamera = true;
+        [SerializeField] private Camera gameplayCameraOverride;
+        [SerializeField] private bool forceSwitchCameraPreset = true;
+        [SerializeField] private Vector3 switchCameraPosition = new Vector3(0f, 6.9f, -12.1f);
+        [SerializeField] private Vector3 switchCameraLookAt = new Vector3(0f, 1.05f, -2.35f);
+        [SerializeField] private float switchCameraFieldOfView = 40f;
+        [SerializeField, Range(0f, 1f)] private float switchCameraLateralFollow = 0.78f;
+        [SerializeField] private float switchCameraMaxLateralOffset = 2.4f;
+        [SerializeField, Range(0f, 1f)] private float switchCameraDepthFollow = 0.28f;
+        [SerializeField] private float switchCameraMaxDepthOffset = 0.9f;
+        [SerializeField] private float switchCameraFollowSpeed = 12f;
+        [SerializeField, HideInInspector] private int switchCameraPresetVersion;
 
         [Header("Input")]
         [SerializeField] private BadmintonInputMode inputMode = BadmintonInputMode.Sensor;
@@ -69,6 +96,7 @@ namespace VRBadminton.Gameplay
         [SerializeField] private float sensorAngularSpeedToGameSpeed = 4f;
         [SerializeField] private float sensorLateralScale = 1.35f;
         [SerializeField] private float sensorDepthScale = 1.45f;
+        [SerializeField] private float sensorBackcourtDepthBoost = 1.32f;
         [SerializeField] private float sensorHandHeightScale = 1.1f;
         [SerializeField] private float sensorHandLateralScale = 0.25f;
 
@@ -145,9 +173,19 @@ namespace VRBadminton.Gameplay
         private BadmintonInputMode activeInputMode;
         private bool inputSourceStarted;
         private BadmintonInputSnapshot inputSnapshot;
+        private readonly RacketHitResolver hitResolver = new RacketHitResolver();
+        private readonly List<RacketKinematicFrame> racketHistory = new List<RacketKinematicFrame>(40);
+        private readonly List<ShuttleKinematicFrame> shuttleHistory = new List<ShuttleKinematicFrame>(40);
+        private Vector3 lastRecordedRacketFacePosition;
+        private float lastRecordedRacketTime;
+        private float pendingSwingStartedAt;
+        private RacketHitResult lastHitResult;
+        private Camera gameplayCamera;
+        private const int SwitchCameraPresetVersion = 10;
 
         private void Awake()
         {
+            ApplySwitchCameraPreset();
             CreateMaterials();
             shuttle = CreateShuttlecock().transform;
             landingMarker = CreateLandingMarker().transform;
@@ -167,12 +205,14 @@ namespace VRBadminton.Gameplay
             currentFaceAngle = Mathf.Lerp(-45f, 120f, currentMouseY);
             opponentStamina = opponentMaxStamina;
             inputSnapshot = BadmintonInputSnapshot.Default();
+            lastHitResult = RacketHitResult.Miss("no hit yet", false);
             CreateInputSources();
             ActivateInputMode(inputMode);
         }
 
         private void Start()
         {
+            UpdateSwitchStyleCamera(true);
             ApplyDifficulty(3);
         }
 
@@ -211,11 +251,15 @@ namespace VRBadminton.Gameplay
 
         private Vector3 GroundPositionFromSensor(BadmintonPlayerFrame player)
         {
+            float virtualZ = player.VirtualPosition.z;
+            float depthScale = virtualZ < 0f
+                ? sensorDepthScale * Mathf.Max(1f, sensorBackcourtDepthBoost)
+                : sensorDepthScale;
             return new Vector3(
                 Mathf.Clamp(player.VirtualPosition.x * sensorLateralScale, -2.85f, 2.85f),
                 0.55f,
                 Mathf.Clamp(
-                    -2.7f * CourtLengthScale + player.VirtualPosition.z * sensorDepthScale,
+                    -2.7f * CourtLengthScale + virtualZ * depthScale,
                     -6.15f,
                     -1.15f));
         }
@@ -288,8 +332,24 @@ namespace VRBadminton.Gameplay
             }
 
             UpdateRacketPosition();
+            RecordRacketFrame();
             UpdatePlayerPositionMarker();
             ReadInputSwing();
+        }
+
+        private void LateUpdate()
+        {
+            UpdateSwitchStyleCamera(false);
+        }
+
+        private void OnValidate()
+        {
+            ApplySwitchCameraPreset();
+            if (!Application.isPlaying)
+            {
+                gameplayCamera = null;
+                UpdateSwitchStyleCamera(true);
+            }
         }
 
         private void UpdateRacketPosition()
@@ -349,6 +409,7 @@ namespace VRBadminton.Gameplay
                 if (pendingSwingTime <= 0f)
                 {
                     swingPending = false;
+                    pendingSwingStartedAt = 0f;
                 }
             }
 
@@ -392,7 +453,7 @@ namespace VRBadminton.Gameplay
 
             Vector3 landingPosition = landingMarker.position;
             bool frontCourtTarget = Mathf.Abs(landingPosition.z) < 4f * CourtLengthScale;
-            float playerZOffset = frontCourtTarget ? -1.15f : 0f;
+            float playerZOffset = frontCourtTarget ? -1.15f : Mathf.Max(0f, backcourtPositionInset);
             float playerXOffset = isBackhand ? 0.95f : -0.95f;
             playerPositionMarker.position = new Vector3(
                 landingPosition.x + playerXOffset,
@@ -439,7 +500,256 @@ namespace VRBadminton.Gameplay
             pendingSwingSpeed = speed;
             pendingStartAngle = inputSnapshot.SwingStartAngle;
             pendingSwingTime = contactWindow;
+            pendingSwingStartedAt = Time.time;
             swingCooldown = 0.22f;
+        }
+
+        private void RecordRacketFrame()
+        {
+            if (racketFace == null)
+            {
+                return;
+            }
+
+            float now = Time.time;
+            Vector3 center = racketFace.position;
+            float elapsed = lastRecordedRacketTime > 0f
+                ? Mathf.Max(0.001f, now - lastRecordedRacketTime)
+                : 0f;
+            Vector3 velocity = elapsed > 0f
+                ? (center - lastRecordedRacketFacePosition) / elapsed
+                : Vector3.zero;
+
+            float activeSwingSpeed = Mathf.Max(inputSnapshot.SwingGameSpeed, pendingSwingSpeed);
+            if (swingPending ||
+                inputSnapshot.HasSwingGesture ||
+                inputSnapshot.Swing.State == BadmintonSwingState.Prepare ||
+                inputSnapshot.Swing.State == BadmintonSwingState.Swing ||
+                inputSnapshot.Swing.State == BadmintonSwingState.ImpactCandidate)
+            {
+                float boost = Mathf.Lerp(
+                    1f,
+                    13f,
+                    Mathf.InverseLerp(minimumSwingSpeed * 0.45f, fastSwingSpeed, activeSwingSpeed));
+                velocity += DefaultWorldSwingDirection(inputSnapshot.SwingUpward || swingUpward) * boost;
+            }
+
+            racketHistory.Add(new RacketKinematicFrame
+            {
+                Time = now,
+                FaceCenter = center,
+                FaceNormal = racketFace.forward,
+                FaceRight = racketFace.right,
+                FaceUp = racketFace.up,
+                FaceVelocity = velocity,
+                SwingDirection = DefaultWorldSwingDirection(inputSnapshot.SwingUpward || swingUpward),
+                SwingSpeed = activeSwingSpeed,
+                FaceAngle = currentFaceAngle,
+                TrackingConfidence = CurrentTrackingConfidence(),
+                SwingUpward = inputSnapshot.SwingUpward || swingUpward
+            });
+            PruneRacketHistory(now);
+            lastRecordedRacketFacePosition = center;
+            lastRecordedRacketTime = now;
+        }
+
+        private void RecordShuttleFrame(Vector3 position, Vector3 velocity)
+        {
+            float now = Time.time;
+            shuttleHistory.Add(new ShuttleKinematicFrame
+            {
+                Time = now,
+                Position = position,
+                Velocity = velocity
+            });
+            PruneShuttleHistory(now);
+        }
+
+        private void ClearHitHistory()
+        {
+            racketHistory.Clear();
+            shuttleHistory.Clear();
+            lastRecordedRacketTime = 0f;
+            pendingSwingStartedAt = 0f;
+            lastHitResult = RacketHitResult.Miss("history cleared", false);
+        }
+
+        private void PruneRacketHistory(float now)
+        {
+            float oldest = now - Mathf.Max(0.05f, hitHistorySeconds);
+            while (racketHistory.Count > 0 && racketHistory[0].Time < oldest)
+            {
+                racketHistory.RemoveAt(0);
+            }
+        }
+
+        private void PruneShuttleHistory(float now)
+        {
+            float oldest = now - Mathf.Max(0.05f, hitHistorySeconds);
+            while (shuttleHistory.Count > 0 && shuttleHistory[0].Time < oldest)
+            {
+                shuttleHistory.RemoveAt(0);
+            }
+        }
+
+        private float CurrentTrackingConfidence()
+        {
+            if (inputMode != BadmintonInputMode.Sensor)
+            {
+                return 1f;
+            }
+
+            float confidence = 0f;
+            if (!inputSnapshot.PlayerStale)
+            {
+                confidence += 0.42f;
+            }
+
+            if (inputSnapshot.Player.RightHand.Visible)
+            {
+                confidence += 0.24f * Mathf.Clamp01(inputSnapshot.Player.RightHand.Confidence);
+            }
+
+            if (!inputSnapshot.RacketStale)
+            {
+                confidence += 0.34f;
+            }
+
+            return Mathf.Clamp01(confidence);
+        }
+
+        private RacketHitSettings CurrentHitSettings()
+        {
+            RacketHitSettings settings = RacketHitSettings.Default();
+            settings.SweetHalfWidth = racketSweetHalfWidth;
+            settings.SweetHalfHeight = racketSweetHalfHeight;
+            settings.AssistShell = Mathf.Max(racketAssistShell, racketXAlignmentTolerance * 0.25f);
+            settings.PlaneTolerance = racketPlaneTolerance;
+            settings.MagnetRadius = racketMagnetRadius;
+            settings.MagnetPlaneTolerance = racketMagnetPlaneTolerance;
+            settings.BacktrackSeconds = hitBacktrackSeconds;
+            settings.ForwardSeconds = contactWindow;
+            settings.MaxSampleGapSeconds = Mathf.Max(0.06f, Time.maximumDeltaTime * 0.5f);
+            settings.MinimumQuality = minimumHitQuality;
+            settings.MinimumDirectionQuality = 0.32f;
+            settings.MinimumFaceQuality = 0.16f;
+            if (swingUpward || isBackhand)
+            {
+                settings.SweetHalfWidth += 0.06f;
+                settings.SweetHalfHeight += 0.08f;
+                settings.AssistShell += 0.12f;
+                settings.MagnetRadius += 0.08f;
+                settings.PlaneTolerance += 0.08f;
+                settings.MagnetPlaneTolerance += 0.04f;
+                settings.BacktrackSeconds += 0.04f;
+                settings.ForwardSeconds += 0.08f;
+                settings.MinimumQuality = Mathf.Min(settings.MinimumQuality, 0.38f);
+                settings.MinimumDirectionQuality = 0.22f;
+                settings.MinimumFaceQuality = 0.08f;
+            }
+
+            return settings;
+        }
+
+        private static Vector3 DefaultWorldSwingDirection(bool upward)
+        {
+            Vector3 vertical = upward ? Vector3.up : Vector3.down;
+            return (Vector3.forward * 0.74f + vertical * 0.67f).normalized;
+        }
+
+        private void UpdateSwitchStyleCamera(bool immediate)
+        {
+            if (!useSwitchStyleCamera)
+            {
+                return;
+            }
+
+            ApplySwitchCameraPreset();
+
+            if (gameplayCamera == null)
+            {
+                gameplayCamera = ResolveGameplayCamera();
+                if (gameplayCamera == null)
+                {
+                    return;
+                }
+            }
+
+            float racketX = racketFace != null ? racketFace.position.x : playerGroundPosition.x;
+            float followSourceX = playerGroundPosition.x * 0.68f + racketX * 0.32f;
+            float followX = Mathf.Clamp(
+                followSourceX * Mathf.Max(0.78f, switchCameraLateralFollow),
+                -switchCameraMaxLateralOffset,
+                switchCameraMaxLateralOffset);
+            float racketZ = racketFace != null ? racketFace.position.z : playerGroundPosition.z;
+            float followSourceZ = playerGroundPosition.z * 0.82f + racketZ * 0.18f;
+            float defaultPlayerZ = -2.7f * CourtLengthScale;
+            float followZ = Mathf.Clamp(
+                (followSourceZ - defaultPlayerZ) * switchCameraDepthFollow,
+                -switchCameraMaxDepthOffset,
+                switchCameraMaxDepthOffset);
+            Vector3 targetPosition = switchCameraPosition + new Vector3(followX, 0f, followZ);
+            Vector3 lookAt = switchCameraLookAt + new Vector3(followX * 0.9f, 0f, followZ * 0.72f);
+            float blend = immediate
+                ? 1f
+                : 1f - Mathf.Exp(-switchCameraFollowSpeed * Time.deltaTime);
+
+            Transform cameraTransform = gameplayCamera.transform;
+            cameraTransform.position = Vector3.Lerp(cameraTransform.position, targetPosition, blend);
+            Vector3 lookDirection = lookAt - cameraTransform.position;
+            if (lookDirection.sqrMagnitude > 0.0001f)
+            {
+                cameraTransform.rotation = Quaternion.Slerp(
+                    cameraTransform.rotation,
+                    Quaternion.LookRotation(lookDirection.normalized, Vector3.up),
+                    blend);
+            }
+
+            gameplayCamera.orthographic = false;
+            gameplayCamera.fieldOfView = switchCameraFieldOfView;
+        }
+
+        private Camera ResolveGameplayCamera()
+        {
+            if (gameplayCameraOverride != null)
+            {
+                return gameplayCameraOverride;
+            }
+
+            Camera mainCamera = Camera.main;
+            if (mainCamera != null)
+            {
+                return mainCamera;
+            }
+
+            Camera[] cameras = FindObjectsOfType<Camera>();
+            for (int i = 0; i < cameras.Length; i++)
+            {
+                if (cameras[i].enabled && cameras[i].gameObject.activeInHierarchy)
+                {
+                    return cameras[i];
+                }
+            }
+
+            return null;
+        }
+
+        private void ApplySwitchCameraPreset()
+        {
+            if (!forceSwitchCameraPreset && switchCameraPresetVersion >= SwitchCameraPresetVersion)
+            {
+                return;
+            }
+
+            switchCameraPosition = new Vector3(0f, 6.9f, -12.1f);
+            switchCameraLookAt = new Vector3(0f, 1.05f, -2.35f);
+            switchCameraFieldOfView = 40f;
+            switchCameraLateralFollow = 0.78f;
+            switchCameraMaxLateralOffset = 2.4f;
+            switchCameraDepthFollow = 0.28f;
+            switchCameraMaxDepthOffset = 0.9f;
+            switchCameraFollowSpeed = 12f;
+            switchCameraPresetVersion = SwitchCameraPresetVersion;
         }
 
         private void OnGUI()
@@ -496,6 +806,7 @@ namespace VRBadminton.Gameplay
             DrawModeAndDifficulty();
             DrawInputStatus();
             DrawCameraPreview();
+            DrawHitDebug();
 
             float staminaRatio = opponentMaxStamina <= 0f
                 ? 0f
@@ -717,6 +1028,36 @@ namespace VRBadminton.Gameplay
             GUI.color = previousColor;
         }
 
+        private void DrawHitDebug()
+        {
+            if (!showHitDebug)
+            {
+                return;
+            }
+
+            GUIStyle debugStyle = new GUIStyle(uiLabelStyle)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize = 12,
+                wordWrap = true
+            };
+            float panelWidth = 300f;
+            float panelHeight = 112f;
+            float panelX = Screen.width - panelWidth - 18f;
+            float panelY = 18f;
+            Color previous = GUI.color;
+            GUI.color = new Color(0.03f, 0.04f, 0.05f, 0.84f);
+            GUI.Box(new Rect(panelX, panelY, panelWidth, panelHeight), GUIContent.none);
+            GUI.color = Color.white;
+            GUI.Label(
+                new Rect(panelX + 12f, panelY + 10f, panelWidth - 24f, panelHeight - 20f),
+                $"Hit: {(lastHitResult.Hit ? lastHitResult.Shot.ToString() : "Miss")}  {lastHitResult.Reason}\n" +
+                $"Q {lastHitResult.Quality:0.00}  S {lastHitResult.SpatialQuality:0.00}  T {lastHitResult.TimingQuality:0.00}  D {lastHitResult.DirectionQuality:0.00}\n" +
+                $"Face {lastHitResult.FaceQuality:0.00}  Power {lastHitResult.PowerQuality:0.00}  Assist {lastHitResult.AssistUsed}  Magnet {lastHitResult.MagnetUsed}",
+                debugStyle);
+            GUI.color = previous;
+        }
+
         private void DrawPosePreviewSkeleton(
             Rect imageRect,
             BadmintonPoseLandmark[] landmarks,
@@ -891,6 +1232,8 @@ namespace VRBadminton.Gameplay
             smashReceiveReady = false;
             awaitingPlayerServe = false;
             swingPending = false;
+            pendingSwingStartedAt = 0f;
+            ClearHitHistory();
             shuttleTrail.emitting = false;
             shuttle.gameObject.SetActive(false);
             landingMarker.gameObject.SetActive(false);
@@ -1085,9 +1428,12 @@ namespace VRBadminton.Gameplay
             UpdatePlayerPositionMarker();
             shuttleIncoming = true;
             swingPending = false;
+            pendingSwingStartedAt = 0f;
+            ClearHitHistory();
 
             float progress = 0f;
             Vector3 previousPosition = start;
+            RecordShuttleFrame(start, Vector3.zero);
             while (progress < 1f)
             {
                 float movementScale = isOpponentSmash
@@ -1132,101 +1478,73 @@ namespace VRBadminton.Gameplay
                 return false;
             }
 
-            bool playerInPosition = IsPlayerInRequiredPosition();
-            bool racketAligned =
-                Mathf.Abs(racketFace.position.x - shuttle.position.x) <= racketXAlignmentTolerance;
-            if (!playerInPosition || !racketAligned)
+            RacketHitContext context = new RacketHitContext
+            {
+                Now = Time.time,
+                SwingStartedAt = pendingSwingStartedAt > 0f ? pendingSwingStartedAt : Time.time,
+                SwingExpiresAt = pendingSwingStartedAt > 0f ? pendingSwingStartedAt + contactWindow : Time.time,
+                SwingPending = swingPending,
+                SwingUpward = swingUpward,
+                SwingSpeed = pendingSwingSpeed,
+                SwingStartAngle = pendingStartAngle,
+                IncomingFrontCourt = incomingFrontCourt,
+                IncomingOpponentSmash = incomingOpponentSmash,
+                SmashReceiveReady = smashReceiveReady,
+                IsBackhand = isBackhand,
+                MinimumSwingSpeed = minimumSwingSpeed,
+                MediumSwingSpeed = mediumSwingSpeed,
+                FastSwingSpeed = fastSwingSpeed
+            };
+
+            lastHitResult = hitResolver.Resolve(
+                racketHistory,
+                shuttleHistory,
+                context,
+                CurrentHitSettings());
+
+            if (lastHitResult.ConsumeSwing)
+            {
+                swingPending = false;
+                pendingSwingStartedAt = 0f;
+            }
+
+            if (!lastHitResult.Hit)
             {
                 return false;
             }
 
-            swingPending = false;
+            pendingSwingSpeed = lastHitResult.SwingSpeed;
+            pendingStartAngle = lastHitResult.FaceAngle;
+            swingUpward = lastHitResult.SwingUpward;
+            shot = MapResolvedShot(lastHitResult.Shot);
             if (incomingOpponentSmash)
             {
-                if (!smashReceiveReady || !swingUpward)
-                {
-                    return false;
-                }
-
-                shot = pendingSwingSpeed >= mediumSwingSpeed
-                    ? ShotType.Clear
-                    : ShotType.Drop;
                 incomingOpponentSmash = false;
                 smashReceiveReady = false;
-                return true;
             }
 
-            shot = ClassifyShot(swingUpward, pendingStartAngle, pendingSwingSpeed);
-            if (shot == ShotType.Miss)
-            {
-                return false;
-            }
-
-            return true;
+            return shot != ShotType.Miss;
         }
 
-        private bool IsPlayerInRequiredPosition()
+        private static ShotType MapResolvedShot(RacketResolvedShot shot)
         {
-            if (!playerPositionMarker.gameObject.activeSelf)
+            switch (shot)
             {
-                return false;
+                case RacketResolvedShot.Net:
+                    return ShotType.Net;
+                case RacketResolvedShot.Drop:
+                    return ShotType.Drop;
+                case RacketResolvedShot.Clear:
+                    return ShotType.Clear;
+                case RacketResolvedShot.Smash:
+                    return ShotType.Smash;
+                case RacketResolvedShot.Drive:
+                    return ShotType.Drive;
+                case RacketResolvedShot.Out:
+                    return ShotType.Out;
+                default:
+                    return ShotType.Miss;
             }
-
-            Vector2 playerPosition = new Vector2(playerMarker.position.x, playerMarker.position.z);
-            Vector2 requiredPosition = new Vector2(
-                playerPositionMarker.position.x,
-                playerPositionMarker.position.z);
-            return Vector2.Distance(playerPosition, requiredPosition) <= playerPositionRadius;
-        }
-
-        private ShotType ClassifyShot(bool upward, float startAngle, float speed)
-        {
-            if (incomingFrontCourt != upward)
-            {
-                return ShotType.Miss;
-            }
-
-            if (speed < minimumSwingSpeed)
-            {
-                return ShotType.Drop;
-            }
-
-            if (!upward && startAngle > 85f && startAngle <= 95f)
-            {
-                return ShotType.Drive;
-            }
-
-            if (!upward && startAngle > 95f)
-            {
-                return speed >= mediumSwingSpeed ? ShotType.Clear : ShotType.Drop;
-            }
-
-            if (!upward && startAngle >= 60f && startAngle <= 85f)
-            {
-                return ShotType.Smash;
-            }
-
-            if (!upward && startAngle >= 0f && startAngle < 60f)
-            {
-                return ShotType.Miss;
-            }
-
-            if (upward && startAngle >= 45f && startAngle <= 75f)
-            {
-                return ShotType.Clear;
-            }
-
-            if (upward && startAngle <= -30f)
-            {
-                return ShotType.Clear;
-            }
-
-            if (upward && startAngle >= -30f && startAngle <= 0f)
-            {
-                return ShotType.Drop;
-            }
-
-            return ShotType.Miss;
         }
 
         private IEnumerator ReturnShuttle(ShotType shot, Vector3 start)
@@ -1612,6 +1930,8 @@ namespace VRBadminton.Gameplay
                 shuttle.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
             }
 
+            Vector3 velocity = direction / Mathf.Max(Time.deltaTime, 0.001f);
+            RecordShuttleFrame(position, velocity);
             shuttle.position = position;
             previousPosition = position;
         }
