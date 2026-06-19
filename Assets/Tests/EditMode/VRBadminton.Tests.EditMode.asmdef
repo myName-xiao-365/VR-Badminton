@@ -1,0 +1,21 @@
+{
+    "name": "VRBadminton.Tests.EditMode",
+    "rootNamespace": "VRBadminton.Tests",
+    "references": [
+        "VRBadminton"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

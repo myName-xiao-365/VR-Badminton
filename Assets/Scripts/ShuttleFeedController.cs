@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using VRBadminton.Input;
 
 namespace VRBadminton.Gameplay
 {
@@ -52,6 +53,15 @@ namespace VRBadminton.Gameplay
         [SerializeField] private float contactWindow = 0.58f;
         [SerializeField] private float racketFollowSpeed = 14f;
         [SerializeField] private float racketMoveSpeed = 4.8f;
+
+        [Header("Input")]
+        [SerializeField] private BadmintonInputMode inputMode = BadmintonInputMode.Sensor;
+        [SerializeField] private int sensorPhonePort = 8092;
+        [SerializeField] private float sensorAngularSpeedToGameSpeed = 4f;
+        [SerializeField] private float sensorLateralScale = 1.35f;
+        [SerializeField] private float sensorDepthScale = 1.45f;
+        [SerializeField] private float sensorHandHeightScale = 1.1f;
+        [SerializeField] private float sensorHandLateralScale = 0.25f;
 
         [Header("Opponent")]
         [SerializeField] private float opponentMoveSpeed = 4.2f;
@@ -120,6 +130,12 @@ namespace VRBadminton.Gameplay
         private bool awaitingPlayerServe;
         private bool playerServeGestureReady;
         private float playerServeSpeed;
+        private IBadmintonInputSource legacyInputSource;
+        private IBadmintonInputSource sensorInputSource;
+        private IBadmintonInputSource activeInputSource;
+        private BadmintonInputMode activeInputMode;
+        private bool inputSourceStarted;
+        private BadmintonInputSnapshot inputSnapshot;
 
         private void Awake()
         {
@@ -137,15 +153,62 @@ namespace VRBadminton.Gameplay
             shuttle.gameObject.SetActive(false);
             landingMarker.gameObject.SetActive(false);
             playerPositionMarker.gameObject.SetActive(false);
-            lastMousePosition = Input.mousePosition;
-            currentMouseY = Mathf.Clamp01(Input.mousePosition.y / Mathf.Max(1f, Screen.height));
+            lastMousePosition = Vector3.zero;
+            currentMouseY = 0.5f;
             currentFaceAngle = Mathf.Lerp(-45f, 120f, currentMouseY);
             opponentStamina = opponentMaxStamina;
+            inputSnapshot = BadmintonInputSnapshot.Default();
+            CreateInputSources();
+            ActivateInputMode(inputMode);
         }
 
         private void Start()
         {
             ApplyDifficulty(3);
+        }
+
+        private void OnDestroy()
+        {
+            legacyInputSource?.Dispose();
+            sensorInputSource?.Dispose();
+        }
+
+        private void CreateInputSources()
+        {
+            legacyInputSource = new LegacyBadmintonInputSource(
+                playerGroundPosition,
+                racketMoveSpeed,
+                minimumSwingSpeed,
+                upwardOutSpeed,
+                minimumAngleTravel);
+            sensorInputSource = new SensorBadmintonInputSource(
+                playerGroundPosition,
+                sensorPhonePort,
+                sensorAngularSpeedToGameSpeed,
+                upwardOutSpeed);
+        }
+
+        private void ActivateInputMode(BadmintonInputMode mode)
+        {
+            activeInputSource?.Stop();
+            activeInputMode = mode;
+            activeInputSource = mode == BadmintonInputMode.Sensor
+                ? sensorInputSource
+                : legacyInputSource;
+            activeInputSource?.Start();
+            inputSnapshot = activeInputSource?.Snapshot ?? BadmintonInputSnapshot.Default();
+            inputSourceStarted = true;
+        }
+
+        private Vector3 GroundPositionFromSensor(BadmintonPlayerFrame player)
+        {
+            return new Vector3(
+                Mathf.Clamp(player.VirtualPosition.x * sensorLateralScale, -2.85f, 2.85f),
+                0.55f,
+                Mathf.Clamp(
+                    -2.7f * CourtLengthScale + player.VirtualPosition.z * sensorDepthScale,
+                    -6.15f,
+                    -1.15f));
         }
 
         private IEnumerator GameLoop()
@@ -188,46 +251,83 @@ namespace VRBadminton.Gameplay
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.Q))
+            if (!inputSourceStarted || activeInputMode != inputMode)
+            {
+                ActivateInputMode(inputMode);
+            }
+
+            activeInputSource?.Tick(new BadmintonInputContext
+            {
+                ShuttleIncoming = shuttleIncoming,
+                AwaitingPlayerServe = awaitingPlayerServe,
+                IncomingOpponentSmash = incomingOpponentSmash,
+                ContactWindow = contactWindow
+            });
+            inputSnapshot = activeInputSource?.Snapshot ?? BadmintonInputSnapshot.Default();
+            currentMouseY = Mathf.Clamp01(inputSnapshot.Face01);
+            currentFaceAngle = inputSnapshot.FaceAngle;
+            displayedPower = inputSnapshot.DisplayedPower;
+
+            if (inputSnapshot.ToggleBackhand)
             {
                 isBackhand = !isBackhand;
             }
 
-            if (incomingOpponentSmash && Input.GetKeyDown(KeyCode.Space))
+            if (incomingOpponentSmash && inputSnapshot.SmashReceiveReady)
             {
                 smashReceiveReady = true;
             }
 
             UpdateRacketPosition();
             UpdatePlayerPositionMarker();
-            ReadMouseSwing();
+            ReadInputSwing();
         }
 
         private void UpdateRacketPosition()
         {
-            float horizontal = Input.GetAxisRaw("Horizontal");
-            float vertical = Input.GetAxisRaw("Vertical");
-            Vector3 movement = new Vector3(horizontal, 0f, vertical);
-            if (movement.sqrMagnitude > 1f)
+            if (inputSnapshot.HasGroundPosition)
             {
-                movement.Normalize();
+                playerGroundPosition = inputSnapshot.GroundPosition;
+            }
+            else if (inputMode == BadmintonInputMode.Sensor && !inputSnapshot.PlayerStale)
+            {
+                playerGroundPosition = GroundPositionFromSensor(inputSnapshot.Player);
             }
 
-            playerGroundPosition += movement * (racketMoveSpeed * Time.deltaTime);
             playerGroundPosition.x = Mathf.Clamp(playerGroundPosition.x, -2.85f, 2.85f);
             playerGroundPosition.z = Mathf.Clamp(playerGroundPosition.z, -6.15f, -1.15f);
 
-            float targetHeight = 0.65f;
-            if (shuttleIncoming && shuttle.gameObject.activeSelf && shuttle.position.z < -0.25f)
+            Vector3 targetPosition = racket.position;
+            if (inputMode == BadmintonInputMode.Sensor)
             {
-                targetHeight = Mathf.Clamp(shuttle.position.y - 0.75f, 0.12f, 1.65f);
+                if (!inputSnapshot.PlayerStale && inputSnapshot.Player.RightHand.Visible)
+                {
+                    float sensorHeight = Mathf.Clamp(
+                        0.28f + inputSnapshot.Player.RightHand.Height * sensorHandHeightScale,
+                        0.12f,
+                        1.65f);
+                    float sensorHandOffset = inputSnapshot.Player.RightHand.Relative.x * sensorHandLateralScale;
+                    targetPosition = new Vector3(
+                        playerGroundPosition.x + sensorHandOffset,
+                        sensorHeight,
+                        playerGroundPosition.z);
+                }
+            }
+            else
+            {
+                float targetHeight = 0.65f;
+                if (shuttleIncoming && shuttle.gameObject.activeSelf && shuttle.position.z < -0.25f)
+                {
+                    targetHeight = Mathf.Clamp(shuttle.position.y - 0.75f, 0.12f, 1.65f);
+                }
+
+                float racketSide = isBackhand ? -0.95f : 0.95f;
+                targetPosition = new Vector3(
+                    playerGroundPosition.x + racketSide,
+                    targetHeight,
+                    playerGroundPosition.z);
             }
 
-            float racketSide = isBackhand ? -0.95f : 0.95f;
-            Vector3 targetPosition = new Vector3(
-                playerGroundPosition.x + racketSide,
-                targetHeight,
-                playerGroundPosition.z);
             racket.position = Vector3.Lerp(
                 racket.position,
                 targetPosition,
@@ -249,10 +349,21 @@ namespace VRBadminton.Gameplay
                 facePitch = -facePitch;
             }
 
-            Quaternion targetRotation = Quaternion.Euler(
-                facePitch,
-                isBackhand ? 180f : 0f,
-                isBackhand ? 8f : -8f);
+            Quaternion targetRotation = racket.rotation;
+            if (inputMode == BadmintonInputMode.Sensor)
+            {
+                if (!inputSnapshot.RacketStale)
+                {
+                    targetRotation = inputSnapshot.Racket.Orientation;
+                }
+            }
+            else
+            {
+                targetRotation = Quaternion.Euler(
+                    facePitch,
+                    isBackhand ? 180f : 0f,
+                    isBackhand ? 8f : -8f);
+            }
 
             racket.rotation = Quaternion.Slerp(racket.rotation, targetRotation, 18f * Time.deltaTime);
             playerMarker.position = new Vector3(
@@ -280,58 +391,24 @@ namespace VRBadminton.Gameplay
                 landingPosition.z + playerZOffset);
         }
 
-        private void ReadMouseSwing()
+        private void ReadInputSwing()
         {
-            Vector3 mousePosition = Input.mousePosition;
-            float deltaY = mousePosition.y - lastMousePosition.y;
-            lastMousePosition = mousePosition;
-            currentMouseY = Mathf.Clamp01(mousePosition.y / Mathf.Max(1f, Screen.height));
-            currentFaceAngle = Mathf.Lerp(-45f, 120f, currentMouseY);
-
-            float instantaneousSpeed = Mathf.Abs(deltaY) / Mathf.Max(Time.unscaledDeltaTime, 0.001f);
-            smoothedMouseSpeed = Mathf.Lerp(
-                smoothedMouseSpeed,
-                instantaneousSpeed,
-                1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
-            displayedPower = Mathf.Lerp(
-                displayedPower,
-                Mathf.Clamp01(smoothedMouseSpeed / upwardOutSpeed),
-                1f - Mathf.Exp(-10f * Time.unscaledDeltaTime));
-
             if (swingCooldown > 0f)
             {
                 return;
             }
 
-            if (!gestureTracking)
-            {
-                if (Mathf.Abs(deltaY) > 1.5f)
-                {
-                    gestureTracking = true;
-                    gestureStartAngle = currentFaceAngle;
-                    gestureDirection = Mathf.Sign(deltaY);
-                }
-
-                return;
-            }
-
-            if (Mathf.Sign(deltaY) != gestureDirection && Mathf.Abs(deltaY) > 2f)
-            {
-                gestureTracking = false;
-                return;
-            }
-
-            float angleTravel = Mathf.Abs(currentFaceAngle - gestureStartAngle);
-            if (angleTravel < minimumAngleTravel)
-            {
-                return;
-            }
-
-            float speed = smoothedMouseSpeed;
-            gestureTracking = false;
+            float speed = inputSnapshot.SwingGameSpeed;
             if (awaitingPlayerServe)
             {
-                if (gestureDirection > 0f && speed >= minimumSwingSpeed * 0.45f)
+                if (inputMode == BadmintonInputMode.Sensor && (inputSnapshot.PlayerStale || inputSnapshot.RacketStale))
+                {
+                    return;
+                }
+
+                if (inputSnapshot.HasSwingGesture &&
+                    inputSnapshot.SwingUpward &&
+                    speed >= minimumSwingSpeed * 0.45f)
                 {
                     playerServeSpeed = speed;
                     playerServeGestureReady = true;
@@ -340,15 +417,18 @@ namespace VRBadminton.Gameplay
                 return;
             }
 
-            if (!shuttleIncoming || speed < minimumSwingSpeed * 0.45f)
+            if (!inputSnapshot.HasSwingGesture ||
+                !shuttleIncoming ||
+                speed < minimumSwingSpeed * 0.45f ||
+                (inputMode == BadmintonInputMode.Sensor && (inputSnapshot.PlayerStale || inputSnapshot.RacketStale)))
             {
                 return;
             }
 
             swingPending = true;
-            swingUpward = gestureDirection > 0f;
+            swingUpward = inputSnapshot.SwingUpward;
             pendingSwingSpeed = speed;
-            pendingStartAngle = gestureStartAngle;
+            pendingStartAngle = inputSnapshot.SwingStartAngle;
             pendingSwingTime = contactWindow;
             swingCooldown = 0.22f;
         }
@@ -391,7 +471,9 @@ namespace VRBadminton.Gameplay
             GUI.Label(new Rect(x - 24f, y + barHeight + 6f, barWidth + 48f, 24f), "平拍", uiLabelStyle);
             GUI.Label(
                 new Rect(x - 44f, y + barHeight + 30f, barWidth + 88f, 24f),
-                isBackhand ? "Backhand [Q]" : "Forehand [Q]",
+                inputMode == BadmintonInputMode.Sensor
+                    ? "Sensor racket"
+                    : isBackhand ? "Backhand [Q]" : "Forehand [Q]",
                 uiLabelStyle);
 
             GUI.color = new Color(0.03f, 0.04f, 0.05f, 0.82f);
@@ -403,6 +485,7 @@ namespace VRBadminton.Gameplay
                 new GUIStyle(uiLabelStyle) { fontSize = 24 });
 
             DrawModeAndDifficulty();
+            DrawInputStatus();
 
             float staminaRatio = opponentMaxStamina <= 0f
                 ? 0f
@@ -426,7 +509,11 @@ namespace VRBadminton.Gameplay
                     : new Color(1f, 0.35f, 0.18f, 1f);
                 GUI.Label(
                     new Rect(Screen.width * 0.5f - 130f, 24f, 260f, 30f),
-                    smashReceiveReady ? "READY - SWING UP" : "PRESS SPACE TO RECEIVE",
+                    smashReceiveReady
+                        ? "READY - SWING UP"
+                        : inputMode == BadmintonInputMode.Sensor
+                            ? "RAISE HAND / PREPARE SWING"
+                            : "PRESS SPACE TO RECEIVE",
                     uiLabelStyle);
             }
 
@@ -500,6 +587,67 @@ namespace VRBadminton.Gameplay
                     "ONLINE MODE - COMING SOON",
                     new GUIStyle(uiLabelStyle) { fontSize = 20 });
             }
+        }
+
+        private void DrawInputStatus()
+        {
+            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 13,
+                alignment = TextAnchor.MiddleCenter
+            };
+            GUIStyle statusStyle = new GUIStyle(uiLabelStyle)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 12,
+                wordWrap = true
+            };
+
+            float panelX = 18f;
+            float panelY = 204f;
+            float panelWidth = 328f;
+            float panelHeight = 154f;
+            GUI.color = new Color(0.03f, 0.04f, 0.05f, 0.86f);
+            GUI.Box(new Rect(panelX, panelY, panelWidth, panelHeight), GUIContent.none);
+
+            Color previous = GUI.color;
+            GUI.color = inputMode == BadmintonInputMode.Sensor
+                ? new Color(1f, 0.82f, 0.22f, 1f)
+                : Color.white;
+            if (GUI.Button(new Rect(panelX + 12f, panelY + 10f, 144f, 28f), "Sensor", buttonStyle))
+            {
+                inputMode = BadmintonInputMode.Sensor;
+                ActivateInputMode(inputMode);
+            }
+
+            GUI.color = inputMode == BadmintonInputMode.Legacy
+                ? new Color(1f, 0.82f, 0.22f, 1f)
+                : Color.white;
+            if (GUI.Button(new Rect(panelX + 172f, panelY + 10f, 144f, 28f), "Legacy", buttonStyle))
+            {
+                inputMode = BadmintonInputMode.Legacy;
+                ActivateInputMode(inputMode);
+            }
+
+            GUI.color = previous;
+            GUI.Label(
+                new Rect(panelX + 12f, panelY + 46f, panelWidth - 24f, 20f),
+                inputSnapshot.Status,
+                statusStyle);
+            GUI.Label(
+                new Rect(panelX + 12f, panelY + 68f, panelWidth - 24f, 20f),
+                $"Camera: {inputSnapshot.CameraStatus}",
+                statusStyle);
+            GUI.Label(
+                new Rect(panelX + 12f, panelY + 90f, panelWidth - 24f, 20f),
+                $"Phone: {inputSnapshot.PhoneStatus}",
+                statusStyle);
+            GUI.Label(
+                new Rect(panelX + 12f, panelY + 112f, panelWidth - 24f, 34f),
+                string.IsNullOrEmpty(inputSnapshot.PhoneUrl)
+                    ? "Phone URL: unavailable"
+                    : $"Phone URL: {inputSnapshot.PhoneUrl}",
+                statusStyle);
         }
 
         private void SetGameMode(GameMode mode)
