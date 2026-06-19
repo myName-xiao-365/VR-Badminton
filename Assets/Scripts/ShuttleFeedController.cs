@@ -1768,16 +1768,20 @@ namespace VRBadminton.Gameplay
             Vector3 opponentReadyPosition = GetOpponentReadyPosition(
                 opponentContactPoint,
                 opponentSide);
-            bool plannedClear = false;
-            bool plannedClearBackhand = false;
+            bool plannedForehandOverhead = false;
+            bool plannedOverheadBackhand = false;
             OpponentShotType plannedOpponentShot = OpponentShotType.Net;
             if (shot == ShotType.Clear)
             {
                 plannedOpponentShot = ChooseOpponentShot(
                     true,
                     Mathf.Abs(opponentContactPoint.z) < 4f * CourtLengthScale);
-                plannedClear = plannedOpponentShot == OpponentShotType.Clear;
-                plannedClearBackhand = ShouldOpponentUseBackhand(opponentContactPoint);
+                plannedForehandOverhead =
+                    plannedOpponentShot == OpponentShotType.Clear ||
+                    (difficultyLevel == 0 &&
+                        plannedOpponentShot == OpponentShotType.Drop);
+                plannedOverheadBackhand =
+                    ShouldOpponentUseBackhand(opponentContactPoint);
             }
 
             while (progress < opponentContactProgress)
@@ -1795,7 +1799,7 @@ namespace VRBadminton.Gameplay
                     yield return ResolveNetFault();
                     yield break;
                 }
-                if (plannedClear && !plannedClearBackhand)
+                if (plannedForehandOverhead && !plannedOverheadBackhand)
                 {
                     UpdateOpponentForehandClearPreparation(
                         progress / opponentContactProgress,
@@ -1898,9 +1902,8 @@ namespace VRBadminton.Gameplay
                 useBackhand,
                 jumpSmash);
             bool forehandClearPrepared =
-                plannedClear &&
-                !plannedClearBackhand &&
-                opponentShot == OpponentShotType.Clear;
+                plannedForehandOverhead &&
+                !plannedOverheadBackhand;
             if (forehandClearPrepared)
             {
                 AlignOpponentRacketFace(
