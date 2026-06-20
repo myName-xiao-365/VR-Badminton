@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using VRBadminton.Input;
 
@@ -91,6 +92,7 @@ namespace VRBadminton.App
     internal sealed class ShuttleFeedRuntimeHud
     {
         private readonly GameObject root;
+        private readonly GameObject eventSystemRoot;
         private readonly Text scoreText;
         private readonly Text matchText;
         private readonly Text staminaText;
@@ -125,6 +127,7 @@ namespace VRBadminton.App
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.matchWidthOrHeight = 0.5f;
             root.AddComponent<GraphicRaycaster>();
+            eventSystemRoot = EnsureEventSystem();
 
             Font font = LoadRuntimeFont();
             RectTransform rootRect = root.GetComponent<RectTransform>();
@@ -306,6 +309,11 @@ namespace VRBadminton.App
             {
                 Object.Destroy(root);
             }
+
+            if (eventSystemRoot != null)
+            {
+                Object.Destroy(eventSystemRoot);
+            }
         }
 
         private static RectTransform CreatePanel(
@@ -386,6 +394,21 @@ namespace VRBadminton.App
         {
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             return font != null ? font : GUI.skin.font;
+        }
+
+        private static GameObject EnsureEventSystem()
+        {
+            if (EventSystem.current != null ||
+                Object.FindObjectOfType<EventSystem>() != null)
+            {
+                return null;
+            }
+
+            GameObject eventSystem = new GameObject("VR Badminton EventSystem");
+            Object.DontDestroyOnLoad(eventSystem);
+            eventSystem.AddComponent<EventSystem>();
+            eventSystem.AddComponent<StandaloneInputModule>();
+            return eventSystem;
         }
 
         private static Button CreateButton(
