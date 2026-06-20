@@ -90,6 +90,7 @@ namespace VRBadminton.App
                 return;
             }
 
+            ApplySceneTheme();
             playerScore = 0;
             opponentScore = 0;
             playerServing = false;
