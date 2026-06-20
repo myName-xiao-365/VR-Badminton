@@ -10,6 +10,18 @@ namespace VRBadminton.App
 {
     public sealed partial class ShuttleFeedController
     {
+        private GUIStyle uiSmallButtonStyle;
+        private GUIStyle uiButtonStyle;
+        private GUIStyle uiPauseButtonStyle;
+        private GUIStyle uiMenuButtonStyle;
+        private GUIStyle uiHeroButtonStyle;
+        private GUIStyle uiStatusStyle;
+        private GUIStyle uiDebugStyle;
+        private GUIStyle uiFrontendTitleStyle;
+        private GUIStyle uiMatchTitleStyle;
+        private GUIStyle uiMatchEndTitleStyle;
+        private GUIStyle uiSubtitleStyle;
+
         private void OnGUI()
         {
             using (GuiMarker.Auto())
@@ -47,12 +59,6 @@ namespace VRBadminton.App
                 GUI.DrawTexture(new Rect(x - 7f, indicatorY - 3f, barWidth + 14f, 6f), Texture2D.whiteTexture);
 
                 GUI.color = Color.white;
-                uiLabelStyle ??= new GUIStyle(GUI.skin.label)
-                {
-                    alignment = TextAnchor.MiddleCenter,
-                    fontSize = 13,
-                    normal = { textColor = Color.white }
-                };
                 GUI.Label(new Rect(x - 24f, y - 30f, barWidth + 48f, 24f), "立拍", uiLabelStyle);
                 GUI.Label(new Rect(x - 24f, y + barHeight + 6f, barWidth + 48f, 24f), "平拍", uiLabelStyle);
                 GUI.Label(
@@ -125,12 +131,6 @@ namespace VRBadminton.App
 
         private void DrawMatchEnd()
         {
-            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 15,
-                alignment = TextAnchor.MiddleCenter
-            };
-
             GUI.color = new Color(0f, 0f, 0f, 0.78f);
             GUI.Box(
                 new Rect(Screen.width * 0.5f - 190f, Screen.height * 0.5f - 80f, 380f, 160f),
@@ -139,18 +139,18 @@ namespace VRBadminton.App
             GUI.Label(
                 new Rect(Screen.width * 0.5f - 170f, Screen.height * 0.5f - 60f, 340f, 42f),
                 matchWinner == 1 ? "YOU WIN" : "OPPONENT WINS",
-                new GUIStyle(uiLabelStyle) { fontSize = 24 });
+                uiMatchEndTitleStyle);
             if (GUI.Button(
                 new Rect(Screen.width * 0.5f - 135f, Screen.height * 0.5f - 5f, 270f, 36f),
                 "Restart Same Settings",
-                buttonStyle))
+                uiButtonStyle))
             {
                 RestartMatch();
             }
             if (GUI.Button(
                 new Rect(Screen.width * 0.5f - 135f, Screen.height * 0.5f + 40f, 270f, 32f),
                 "Main Menu",
-                buttonStyle))
+                uiButtonStyle))
             {
                 ReturnToMainMenu();
             }
@@ -163,12 +163,6 @@ namespace VRBadminton.App
                 return;
             }
 
-            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 13,
-                alignment = TextAnchor.MiddleCenter
-            };
-
             GUI.color = new Color(0.03f, 0.04f, 0.05f, 0.88f);
             float panelHeight = resolutionOptionsOpen ? 286f : 152f;
             GUI.Box(new Rect(Screen.width - 232f, 56f, 214f, panelHeight), GUIContent.none);
@@ -178,7 +172,7 @@ namespace VRBadminton.App
             if (GUI.Button(
                 new Rect(Screen.width - 218f, 70f, 186f, 28f),
                 fullscreen ? "Fullscreen: ON" : "Fullscreen: OFF",
-                buttonStyle))
+                uiSmallButtonStyle))
             {
                 if (fullscreen)
                 {
@@ -200,7 +194,7 @@ namespace VRBadminton.App
             if (GUI.Button(
                 new Rect(Screen.width - 218f, 106f, 186f, 28f),
                 $"Resolution: {Screen.width} x {Screen.height}",
-                buttonStyle))
+                uiSmallButtonStyle))
             {
                 resolutionOptionsOpen = !resolutionOptionsOpen;
             }
@@ -229,7 +223,7 @@ namespace VRBadminton.App
                     if (GUI.Button(
                         new Rect(Screen.width - 218f, y, 186f, 25f),
                         labels[i],
-                        buttonStyle))
+                        uiSmallButtonStyle))
                     {
                         SetWindowResolution(sizes[i].x, sizes[i].y);
                         resolutionOptionsOpen = false;
@@ -242,7 +236,7 @@ namespace VRBadminton.App
             if (GUI.Button(
                 new Rect(Screen.width - 218f, guideY, 186f, 28f),
                 showRacketCenterGuide ? "Guide Line: ON" : "Guide Line: OFF",
-                buttonStyle))
+                uiSmallButtonStyle))
             {
                 showRacketCenterGuide = !showRacketCenterGuide;
             }
@@ -250,18 +244,6 @@ namespace VRBadminton.App
 
         private void DrawInputStatus()
         {
-            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 13,
-                alignment = TextAnchor.MiddleCenter
-            };
-            GUIStyle statusStyle = new GUIStyle(uiLabelStyle)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                fontSize = 12,
-                wordWrap = true
-            };
-
             float panelX = 18f;
             float panelY = 204f;
             float panelWidth = 328f;
@@ -273,7 +255,7 @@ namespace VRBadminton.App
             GUI.color = inputMode == BadmintonInputMode.Sensor
                 ? new Color(1f, 0.82f, 0.22f, 1f)
                 : Color.white;
-            if (GUI.Button(new Rect(panelX + 12f, panelY + 10f, 144f, 28f), "Sensor", buttonStyle))
+            if (GUI.Button(new Rect(panelX + 12f, panelY + 10f, 144f, 28f), "Sensor", uiSmallButtonStyle))
             {
                 inputMode = BadmintonInputMode.Sensor;
                 ActivateInputMode(inputMode);
@@ -282,7 +264,7 @@ namespace VRBadminton.App
             GUI.color = inputMode == BadmintonInputMode.Legacy
                 ? new Color(1f, 0.82f, 0.22f, 1f)
                 : Color.white;
-            if (GUI.Button(new Rect(panelX + 172f, panelY + 10f, 144f, 28f), "Legacy", buttonStyle))
+            if (GUI.Button(new Rect(panelX + 172f, panelY + 10f, 144f, 28f), "Legacy", uiSmallButtonStyle))
             {
                 inputMode = BadmintonInputMode.Legacy;
                 ActivateInputMode(inputMode);
@@ -292,21 +274,21 @@ namespace VRBadminton.App
             GUI.Label(
                 new Rect(panelX + 12f, panelY + 46f, panelWidth - 24f, 20f),
                 inputSnapshot.Status,
-                statusStyle);
+                uiStatusStyle);
             GUI.Label(
                 new Rect(panelX + 12f, panelY + 68f, panelWidth - 24f, 20f),
                 $"Camera: {inputSnapshot.CameraStatus}",
-                statusStyle);
+                uiStatusStyle);
             GUI.Label(
                 new Rect(panelX + 12f, panelY + 90f, panelWidth - 24f, 20f),
                 $"Phone: {inputSnapshot.PhoneStatus}",
-                statusStyle);
+                uiStatusStyle);
             GUI.Label(
                 new Rect(panelX + 12f, panelY + 112f, panelWidth - 24f, 34f),
                 string.IsNullOrEmpty(inputSnapshot.PhoneUrl)
                     ? "Phone URL: unavailable"
                     : $"Phone URL: {inputSnapshot.PhoneUrl}",
-                statusStyle);
+                uiStatusStyle);
         }
 
         private void DrawCameraPreview()
@@ -373,12 +355,6 @@ namespace VRBadminton.App
                 return;
             }
 
-            GUIStyle debugStyle = new GUIStyle(uiLabelStyle)
-            {
-                alignment = TextAnchor.UpperLeft,
-                fontSize = 12,
-                wordWrap = true
-            };
             float panelWidth = 300f;
             float panelHeight = 112f;
             float panelX = Screen.width - panelWidth - 18f;
@@ -392,7 +368,7 @@ namespace VRBadminton.App
                 $"Hit: {(lastHitResult.Hit ? lastHitResult.Shot.ToString() : "Miss")}  {lastHitResult.Reason}\n" +
                 $"Q {lastHitResult.Quality:0.00}  S {lastHitResult.SpatialQuality:0.00}  T {lastHitResult.TimingQuality:0.00}  D {lastHitResult.DirectionQuality:0.00}\n" +
                 $"Face {lastHitResult.FaceQuality:0.00}  Power {lastHitResult.PowerQuality:0.00}  Assist {lastHitResult.AssistUsed}  Magnet {lastHitResult.MagnetUsed}",
-                debugStyle);
+                uiDebugStyle);
             GUI.color = previous;
         }
 
@@ -518,15 +494,10 @@ namespace VRBadminton.App
 
         private void DrawPauseButton()
         {
-            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 13,
-                alignment = TextAnchor.MiddleCenter
-            };
             if (GUI.Button(
                 new Rect(Screen.width - 122f, 18f, 104f, 30f),
                 "Pause",
-                buttonStyle))
+                uiSmallButtonStyle))
             {
                 SetPaused(true);
             }
@@ -534,17 +505,12 @@ namespace VRBadminton.App
 
         private void DrawTemporarySlowMotionToggle()
         {
-            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 13,
-                alignment = TextAnchor.MiddleCenter
-            };
             if (GUI.Button(
                 new Rect(18f, Screen.height - 48f, 166f, 30f),
                 temporarySlowMotionEnabled
                     ? "Slow Motion 0.2x: ON"
                     : "Slow Motion 0.2x: OFF",
-                buttonStyle))
+                uiSmallButtonStyle))
             {
                 temporarySlowMotionEnabled = !temporarySlowMotionEnabled;
                 if (!temporarySlowMotionEnabled)
@@ -572,6 +538,62 @@ namespace VRBadminton.App
                 fontSize = 13,
                 normal = { textColor = Color.white }
             };
+            uiSmallButtonStyle ??= new GUIStyle(GUI.skin.button)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 13
+            };
+            uiButtonStyle ??= new GUIStyle(GUI.skin.button)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 15
+            };
+            uiPauseButtonStyle ??= new GUIStyle(GUI.skin.button)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 16
+            };
+            uiMenuButtonStyle ??= new GUIStyle(GUI.skin.button)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 18,
+                padding = new RectOffset(16, 16, 8, 8)
+            };
+            uiHeroButtonStyle ??= new GUIStyle(GUI.skin.button)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 30
+            };
+            uiStatusStyle ??= new GUIStyle(uiLabelStyle)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 12,
+                wordWrap = true
+            };
+            uiDebugStyle ??= new GUIStyle(uiLabelStyle)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize = 12,
+                wordWrap = true
+            };
+            uiFrontendTitleStyle ??= new GUIStyle(uiLabelStyle)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 42,
+                fontStyle = FontStyle.Bold
+            };
+            uiMatchTitleStyle ??= new GUIStyle(uiLabelStyle)
+            {
+                fontSize = 28
+            };
+            uiMatchEndTitleStyle ??= new GUIStyle(uiLabelStyle)
+            {
+                fontSize = 24
+            };
+            uiSubtitleStyle ??= new GUIStyle(uiLabelStyle)
+            {
+                fontSize = 18
+            };
         }
 
         private void DrawFrontend()
@@ -585,34 +607,21 @@ namespace VRBadminton.App
             GUI.DrawTexture(new Rect(0f, 0f, leftWidth, Screen.height), Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            GUIStyle titleStyle = new GUIStyle(uiLabelStyle)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                fontSize = 42,
-                fontStyle = FontStyle.Bold
-            };
-            GUIStyle menuButton = new GUIStyle(GUI.skin.button)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = 18,
-                padding = new RectOffset(16, 16, 8, 8)
-            };
-
-            GUI.Label(new Rect(54f, 70f, leftWidth - 90f, 70f), "VR BADMINTON", titleStyle);
+            GUI.Label(new Rect(54f, 70f, leftWidth - 90f, 70f), "VR BADMINTON", uiFrontendTitleStyle);
 
             float menuButtonWidth = Mathf.Min(340f, leftWidth - 108f);
             float menuButtonX = (leftWidth - menuButtonWidth) * 0.5f;
-            if (GUI.Button(new Rect(menuButtonX, 190f, menuButtonWidth, 46f), "Start Tutorial", menuButton))
+            if (GUI.Button(new Rect(menuButtonX, 190f, menuButtonWidth, 46f), "Start Tutorial", uiMenuButtonStyle))
             {
                 screenState = ScreenState.Tutorial;
             }
 
-            if (GUI.Button(new Rect(menuButtonX, 250f, menuButtonWidth, 46f), "Settings", menuButton))
+            if (GUI.Button(new Rect(menuButtonX, 250f, menuButtonWidth, 46f), "Settings", uiMenuButtonStyle))
             {
                 settingsOpen = !settingsOpen;
             }
 
-            if (GUI.Button(new Rect(menuButtonX, 310f, menuButtonWidth, 46f), "Quit Game", menuButton))
+            if (GUI.Button(new Rect(menuButtonX, 310f, menuButtonWidth, 46f), "Quit Game", uiMenuButtonStyle))
             {
                 QuitGame();
             }
@@ -624,7 +633,7 @@ namespace VRBadminton.App
                 if (GUI.Button(
                     new Rect(buttonX, Screen.height * 0.32f, buttonWidth, Screen.height * 0.34f),
                     "ENTER MATCH",
-                    new GUIStyle(GUI.skin.button) { fontSize = 30 }))
+                    uiHeroButtonStyle))
                 {
                     screenState = ScreenState.ContinueOrNew;
                 }
@@ -657,7 +666,7 @@ namespace VRBadminton.App
             GUI.Label(
                 new Rect(x, 120f, width, 50f),
                 "MATCH",
-                new GUIStyle(uiLabelStyle) { fontSize = 28 });
+                uiMatchTitleStyle);
 
             GUI.enabled = hasSavedMatch;
             if (GUI.Button(new Rect(x, 210f, width, 58f), "Continue Match"))
@@ -681,7 +690,7 @@ namespace VRBadminton.App
         {
             float x = leftWidth + 70f;
             float width = Mathf.Max(340f, Screen.width - x - 80f);
-            GUI.Label(new Rect(x, 70f, width, 44f), "NEW MATCH", new GUIStyle(uiLabelStyle) { fontSize = 28 });
+            GUI.Label(new Rect(x, 70f, width, 44f), "NEW MATCH", uiMatchTitleStyle);
 
             GUI.Label(new Rect(x, 130f, width, 28f), "Mode", uiLabelStyle);
             GUI.color = gameMode == GameMode.SinglePlayer
@@ -761,8 +770,8 @@ namespace VRBadminton.App
         {
             float x = leftWidth + 70f;
             float width = Mathf.Max(300f, Screen.width - x - 80f);
-            GUI.Label(new Rect(x, 150f, width, 50f), "BEGINNER TUTORIAL", new GUIStyle(uiLabelStyle) { fontSize = 28 });
-            GUI.Label(new Rect(x, 220f, width, 40f), "Coming soon", new GUIStyle(uiLabelStyle) { fontSize = 18 });
+            GUI.Label(new Rect(x, 150f, width, 50f), "BEGINNER TUTORIAL", uiMatchTitleStyle);
+            GUI.Label(new Rect(x, 220f, width, 40f), "Coming soon", uiSubtitleStyle);
             if (GUI.Button(new Rect(x, 300f, width, 44f), "Back"))
             {
                 screenState = ScreenState.MainMenu;
@@ -771,12 +780,6 @@ namespace VRBadminton.App
 
         private void DrawPauseMenu()
         {
-            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 16,
-                alignment = TextAnchor.MiddleCenter
-            };
-
             GUI.color = new Color(0f, 0f, 0f, 0.7f);
             GUI.DrawTexture(
                 new Rect(0f, 0f, Screen.width, Screen.height),
@@ -793,12 +796,12 @@ namespace VRBadminton.App
             GUI.Label(
                 new Rect(panelX + 20f, panelY + 24f, panelWidth - 40f, 42f),
                 "PAUSED",
-                new GUIStyle(uiLabelStyle) { fontSize = 28 });
+                uiMatchTitleStyle);
 
             if (GUI.Button(
                 new Rect(panelX + 60f, panelY + 82f, panelWidth - 120f, 38f),
                 "Continue",
-                buttonStyle))
+                uiPauseButtonStyle))
             {
                 SetPaused(false);
             }
@@ -806,7 +809,7 @@ namespace VRBadminton.App
             if (GUI.Button(
                 new Rect(panelX + 60f, panelY + 132f, panelWidth - 120f, 38f),
                 "Settings",
-                buttonStyle))
+                uiPauseButtonStyle))
             {
                 settingsOpen = !settingsOpen;
             }
@@ -814,7 +817,7 @@ namespace VRBadminton.App
             if (GUI.Button(
                 new Rect(panelX + 60f, panelY + 182f, panelWidth - 120f, 38f),
                 "Main Menu",
-                buttonStyle))
+                uiPauseButtonStyle))
             {
                 ReturnToMainMenu();
             }

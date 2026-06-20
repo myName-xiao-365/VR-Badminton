@@ -69,9 +69,10 @@ The next-stage cleanup moved these previously inline rules into Gameplay:
 
 - `ShuttleTrajectoryPlanner` / `ShuttleTrajectory`: current runtime arc shape
   and descending contact sampling.
-- `CourtFaultResolver`: rally winner resolution for net and landing faults.
-- `RallyOutcomeResolver`: score/service/match-winner state transitions.
-- `OpponentStrategy`: pure opponent shot choice wrapper.
+- `CourtFaultResolver`: rally winner resolution for net faults currently used by
+  runtime flow.
+- `MatchState`: score/service/match-winner state transitions.
+- `OpponentDecision`: pure opponent shot choice logic.
 - `OpponentStaminaModel`: shot and run stamina costs.
 
 Scene execution remains in App: transforms, trails, markers, camera preview,

@@ -19,7 +19,7 @@ namespace VRBadminton.App
 
         private OpponentShotType ChooseOpponentShot(bool canSmash, bool fromFrontCourt)
         {
-            OpponentDecision decision = OpponentStrategy.Choose(
+            OpponentDecision decision = OpponentDecision.Choose(
                 difficultyLevel,
                 opponentStamina,
                 canSmash,

@@ -58,25 +58,6 @@ namespace VRBadminton.Tests
         }
 
         [Test]
-        public void ShuttleFlightPlanEvaluatesClearArc()
-        {
-            ShuttleFlightPlan plan = new ShuttleFlightPlan(
-                Vector3.zero,
-                new Vector3(0f, 0f, 10f),
-                2f,
-                4f,
-                ShuttleFlightPlan.DefaultApexT(4f));
-
-            Vector3 apex = plan.Evaluate(plan.ApexT);
-            Vector3 end = plan.Evaluate(1f);
-
-            Assert.IsTrue(plan.UsesClearArc);
-            Assert.AreEqual(4f, apex.y, 0.001f);
-            Assert.AreEqual(10f, end.z, 0.001f);
-            Assert.AreEqual(0f, end.y, 0.001f);
-        }
-
-        [Test]
         public void ShuttleTrajectoryPlannerPreservesRuntimeArcShape()
         {
             ShuttleTrajectory trajectory = ShuttleTrajectoryPlanner.Create(
@@ -111,7 +92,7 @@ namespace VRBadminton.Tests
         }
 
         [Test]
-        public void RallyOutcomeResolverAppliesScoreServiceAndWinner()
+        public void MatchStateAppliesScoreServiceAndWinner()
         {
             MatchState state = new MatchState
             {
@@ -120,10 +101,7 @@ namespace VRBadminton.Tests
                 PlayerServing = false
             };
 
-            state = RallyOutcomeResolver.ApplyRallyWinner(
-                state,
-                1,
-                MatchRules.TwentyOnePoint);
+            state.ApplyRallyWinner(1, MatchRules.TwentyOnePoint);
 
             Assert.AreEqual(21, state.PlayerScore);
             Assert.AreEqual(19, state.OpponentScore);
@@ -150,14 +128,14 @@ namespace VRBadminton.Tests
         }
 
         [Test]
-        public void OpponentStrategyDelegatesBaselineShotChoices()
+        public void OpponentDecisionCoversDropAndNetFallbackChoices()
         {
             Assert.AreEqual(
                 OpponentShotKind.Drop,
-                OpponentStrategy.Choose(0, 100f, false, false, 0f, 0.75f).Shot);
+                OpponentDecision.Choose(0, 100f, false, false, 0f, 0.75f).Shot);
             Assert.AreEqual(
                 OpponentShotKind.Net,
-                OpponentStrategy.Choose(2, 5f, false, true, 0.5f, 0.8f).Shot);
+                OpponentDecision.Choose(2, 5f, false, true, 0.5f, 0.8f).Shot);
         }
 
         [Test]

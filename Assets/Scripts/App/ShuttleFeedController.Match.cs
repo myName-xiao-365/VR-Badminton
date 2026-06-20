@@ -46,10 +46,7 @@ namespace VRBadminton.App
                     OpponentScore = opponentScore,
                     PlayerServing = playerServing
                 };
-                state = RallyOutcomeResolver.ApplyRallyWinner(
-                    state,
-                    rallyWinner,
-                    CurrentMatchRules());
+                state.ApplyRallyWinner(rallyWinner, CurrentMatchRules());
                 playerScore = state.PlayerScore;
                 opponentScore = state.OpponentScore;
                 playerServing = state.PlayerServing;
@@ -63,11 +60,6 @@ namespace VRBadminton.App
 
                 yield return new WaitForSeconds(delayBetweenFeeds);
             }
-        }
-
-        private int GetMatchWinner()
-        {
-            return CurrentMatchRules().GetWinner(playerScore, opponentScore);
         }
 
         private MatchRules CurrentMatchRules()
