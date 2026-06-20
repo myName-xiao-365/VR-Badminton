@@ -126,7 +126,7 @@ namespace VRBadminton.App
             scaler.matchWidthOrHeight = 0.5f;
             root.AddComponent<GraphicRaycaster>();
 
-            Font font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            Font font = LoadRuntimeFont();
             RectTransform rootRect = root.GetComponent<RectTransform>();
             rootRect.anchorMin = Vector2.zero;
             rootRect.anchorMax = Vector2.one;
@@ -380,6 +380,12 @@ namespace VRBadminton.App
             Image image = imageObject.AddComponent<Image>();
             image.color = color;
             return image;
+        }
+
+        private static Font LoadRuntimeFont()
+        {
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            return font != null ? font : GUI.skin.font;
         }
 
         private static Button CreateButton(
