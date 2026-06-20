@@ -1,0 +1,22 @@
+{
+    "name": "VRBadminton.Input",
+    "rootNamespace": "VRBadminton.Input",
+    "references": [
+        "Mediapipe.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.github.homuler.mediapipe",
+            "expression": "0.16.3",
+            "define": "VRBADMINTON_MEDIAPIPE"
+        }
+    ],
+    "noEngineReferences": false
+}

@@ -40,7 +40,7 @@ namespace VRBadminton.Input
                     Port = port;
                     running = true;
                     Url = $"http://{LocalIpv4Address()}:{Port}/phone.html";
-                    Status = $"Phone server listening on :{Port}";
+                    Status = $"Phone server listening at {Url}";
                     thread = new Thread(ListenLoop)
                     {
                         IsBackground = true,

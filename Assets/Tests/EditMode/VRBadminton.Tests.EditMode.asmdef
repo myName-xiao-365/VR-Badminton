@@ -2,7 +2,9 @@
     "name": "VRBadminton.Tests.EditMode",
     "rootNamespace": "VRBadminton.Tests",
     "references": [
-        "VRBadminton"
+        "VRBadminton.App",
+        "VRBadminton.Gameplay",
+        "VRBadminton.Input"
     ],
     "includePlatforms": [
         "Editor"

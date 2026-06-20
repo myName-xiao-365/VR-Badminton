@@ -5267,6 +5267,7 @@ MonoBehaviour:
   hitHistorySeconds: 0.32
   minimumHitQuality: 0.42
   showHitDebug: 0
+  logSensorHitDebug: 0
   useSwitchStyleCamera: 1
   gameplayCameraOverride: {fileID: 963194227}
   forceSwitchCameraPreset: 1
@@ -5280,7 +5281,7 @@ MonoBehaviour:
   switchCameraFollowSpeed: 12
   switchCameraPresetVersion: 10
   inputMode: 0
-  sensorPhonePort: 8092
+  sensorPhonePort: 8093
   sensorAngularSpeedToGameSpeed: 4
   sensorLateralScale: 1.35
   sensorDepthScale: 1.45
@@ -5289,7 +5290,6 @@ MonoBehaviour:
   sensorHandLateralScale: 0.25
   opponentMoveSpeed: 4.2
   opponentReachTolerance: 0.22
-  opponentRacketGroundHeight: 0.72
   opponentMaxStamina: 100
   opponentRunStaminaPerMeter: 0.35
   opponentSmashReceiveChance: 0.55

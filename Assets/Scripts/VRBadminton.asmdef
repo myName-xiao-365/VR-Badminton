@@ -1,8 +1,9 @@
 {
-    "name": "VRBadminton",
-    "rootNamespace": "VRBadminton",
+    "name": "VRBadminton.App",
+    "rootNamespace": "VRBadminton.App",
     "references": [
-        "Mediapipe.Runtime"
+        "VRBadminton.Input",
+        "VRBadminton.Gameplay"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -11,12 +12,6 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [
-        {
-            "name": "com.github.homuler.mediapipe",
-            "expression": "0.16.3",
-            "define": "VRBADMINTON_MEDIAPIPE"
-        }
-    ],
+    "versionDefines": [],
     "noEngineReferences": false
 }

@@ -74,6 +74,27 @@ Place it here:
 The `.packages/` directory is intentionally ignored by Git so the large tarball
 is not committed.
 
+For Windows Player sensor builds, the pose model is committed under:
+
+```text
+Assets/StreamingAssets/VRBadminton/MediaPipe/pose_landmarker_lite.bytes
+```
+
+The Editor path still reads package resources directly; the Player path reads
+from `StreamingAssets`.
+
+### Unity MCP
+
+The project includes MCP for Unity for editor automation:
+
+```json
+"com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#main"
+```
+
+`Packages/packages-lock.json` records the current resolved commit. Because the
+manifest tracks `#main`, inspect lock-file diffs before committing package
+resolution changes.
+
 ### Unity Package Registry
 
 The project currently uses Unity's default package registry:
@@ -117,14 +138,14 @@ Unity starts a small local HTTP server for the phone page.
 Default preferred port:
 
 ```text
-8092
+8093
 ```
 
 If the port is busy, the server tries the next ports up to `preferredPort + 19`.
 The active URL is shown in the in-game UI, for example:
 
 ```text
-http://192.168.1.23:8092/phone.html
+http://192.168.1.23:8093/phone.html
 ```
 
 Open that exact URL on the phone while Unity Play Mode is running.
@@ -158,7 +179,7 @@ Checklist:
 - Disable phone mobile data temporarily if it keeps routing away from Wi-Fi.
 - Do not use a guest Wi-Fi network with client isolation enabled.
 - Allow Unity Editor through Windows Defender Firewall on **Private networks**.
-- Allow inbound TCP traffic to the phone server port, usually `8092`.
+- Allow inbound TCP traffic to the phone server port, usually `8093`.
 - If Unity picked another port, use the exact URL shown in the game UI.
 
 Windows Firewall manual rule:
@@ -167,7 +188,7 @@ Windows Firewall manual rule:
 2. Create an inbound rule.
 3. Rule type: `Port`.
 4. Protocol: `TCP`.
-5. Port: `8092` or the active port shown in Unity.
+5. Port: `8093` or the active port shown in Unity.
 6. Action: `Allow the connection`.
 7. Profile: at least `Private`.
 8. Name: `VR Badminton Phone Input`.
@@ -179,7 +200,7 @@ If the UI shows an address that the phone cannot open:
 - Manually try:
 
 ```text
-http://<PC_WIFI_IPV4>:8092/phone.html
+http://<PC_WIFI_IPV4>:8093/phone.html
 ```
 
 If the page opens on the PC but not on the phone, it is almost always firewall,
@@ -244,7 +265,7 @@ opponent smash, the same key prepares the defensive return.
 
 | Level | Opponent stamina | Smash chance | Smash return chance |
 | --- | ---: | ---: | ---: |
-| N0 | 30 | 0% | 5% |
+| N0 | 100 | 0% | 5% |
 | N1 | 50 | 25% | 20% |
 | N2 | 70 | 50% | 35% |
 | N3 | 100 | 75% | 50% |
@@ -305,6 +326,8 @@ Recommended checks:
 - Run Unity Test Runner EditMode tests.
 - In Play Mode, test Sensor mode with webcam and phone.
 - Switch to Legacy and re-test keyboard/mouse behavior.
+- Build a Windows Development Player from `Assets/Scenes/SampleScene.unity`
+  and verify Sensor mode starts without the Editor-only MediaPipe asset error.
 
 The current development fallback is compiling the Unity-generated Roslyn
 response files under `Library/Bee/artifacts`.

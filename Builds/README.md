@@ -9,6 +9,11 @@
 3. 在左侧选择单人模式、难度和分制。
 4. 联机模式目前为功能占位。
 
+Sensor 模式需要 Windows 摄像头、手机与电脑处在同一局域网，并允许游戏进程访问
+摄像头和入站 TCP 端口。当前 Windows Player 会从
+`VR Badminton_Data/StreamingAssets/VRBadminton/MediaPipe/` 读取
+`pose_landmarker_lite.bytes`。
+
 ## 基础操作
 
 | 按键 | 功能 |
