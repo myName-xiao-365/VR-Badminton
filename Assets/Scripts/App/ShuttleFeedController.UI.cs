@@ -727,11 +727,31 @@ namespace VRBadminton.App
             }
 
             GUI.color = Color.white;
-            GUI.Label(new Rect(x, 320f, width, 28f), "Score Format", uiLabelStyle);
+            GUI.Label(new Rect(x, 315f, width, 28f), "Scene", uiLabelStyle);
+            int sceneCount = sceneThemeRoots.Length;
+            for (int i = 0; i < sceneCount; i++)
+            {
+                GUI.color = i == (int)selectedSceneTheme
+                    ? new Color(1f, 0.82f, 0.22f, 1f)
+                    : Color.white;
+                if (GUI.Button(
+                    new Rect(
+                        x + i * (width / sceneCount),
+                        348f,
+                        width / sceneCount - 7f,
+                        38f),
+                    GetSceneThemeLabel(i)))
+                {
+                    SelectSceneTheme(i);
+                }
+            }
+
+            GUI.color = Color.white;
+            GUI.Label(new Rect(x, 400f, width, 28f), "Score Format", uiLabelStyle);
             GUI.color = scoreTarget == 15
                 ? new Color(1f, 0.82f, 0.22f, 1f)
                 : Color.white;
-            if (GUI.Button(new Rect(x, 355f, width * 0.48f, 40f), "15 Points"))
+            if (GUI.Button(new Rect(x, 435f, width * 0.48f, 40f), "15 Points"))
             {
                 scoreTarget = 15;
                 scoreCap = 21;
@@ -739,7 +759,7 @@ namespace VRBadminton.App
             GUI.color = scoreTarget == 21
                 ? new Color(1f, 0.82f, 0.22f, 1f)
                 : Color.white;
-            if (GUI.Button(new Rect(x + width * 0.52f, 355f, width * 0.48f, 40f), "21 Points"))
+            if (GUI.Button(new Rect(x + width * 0.52f, 435f, width * 0.48f, 40f), "21 Points"))
             {
                 scoreTarget = 21;
                 scoreCap = 30;
@@ -747,13 +767,13 @@ namespace VRBadminton.App
 
             GUI.color = Color.white;
             GUI.enabled = gameMode == GameMode.SinglePlayer;
-            if (GUI.Button(new Rect(x, 430f, width, 54f), "START NEW MATCH"))
+            if (GUI.Button(new Rect(x, 510f, width, 54f), "START NEW MATCH"))
             {
                 StartNewMatch();
             }
             GUI.enabled = true;
 
-            if (GUI.Button(new Rect(x, 500f, width, 40f), "Back"))
+            if (GUI.Button(new Rect(x, 580f, width, 40f), "Back"))
             {
                 screenState = ScreenState.ContinueOrNew;
             }

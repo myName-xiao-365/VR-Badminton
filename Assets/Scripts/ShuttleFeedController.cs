@@ -267,6 +267,7 @@ namespace VRBadminton.App
         {
             ApplySwitchCameraPreset();
             CreateMaterials();
+            CreateMinecraftBackground();
             shuttle = CreateShuttlecock().transform;
             landingMarker = CreateLandingMarker().transform;
             playerPositionMarker = CreatePlayerPositionMarker().transform;
