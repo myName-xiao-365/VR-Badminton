@@ -5243,9 +5243,9 @@ MonoBehaviour:
   firstFeedDelay: 1
   delayBetweenFeeds: 1.4
   dropShotDuration: 1.25
-  clearDuration: 2.15
-  dropShotArcHeight: 1.2
-  clearArcHeight: 4.2
+  clearDuration: 2.35
+  dropShotArcHeight: 1.65
+  clearArcHeight: 4.85
   speedAfterNet: 0.68
   opponentSmashSpeedBeforeNet: 0.7
   opponentSmashSpeedAfterNet: 0.25
@@ -5254,6 +5254,9 @@ MonoBehaviour:
   contactWindow: 0.58
   racketFollowSpeed: 14
   racketMoveSpeed: 4.8
+  jumpHeight: 0.85
+  jumpDuration: 1.05
+  jumpHangFraction: 0.3
   racketSweetHalfWidth: 0.36
   racketSweetHalfHeight: 0.46
   racketAssistShell: 0.3
