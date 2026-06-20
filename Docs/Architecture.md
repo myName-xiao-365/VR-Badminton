@@ -23,13 +23,15 @@ into assemblies and partial controller modules.
 - `UI`: remaining IMGUI menus, camera preview, pause/settings overlays, and
   debug panels.
 - `Hud`: runtime uGUI HUD for score, opponent stamina, input status, camera
-  status, phone status, and Sensor/Legacy switching.
+  status, phone status, and Sensor/Legacy switching. The HUD implementation is
+  isolated from the IMGUI file.
 - `Match`: match lifecycle, score flow, pause/menu transitions, and difficulty
   application.
 - `Flight`: serving, shuttle arcs, hit resolution entry, return flow, net fault
   handling, and trail colors.
 - `Opponent`: opponent decisions, stamina spending, movement, racket poses, and
-  swing animation.
+  swing animation. Movement and preparation pose execution are now delegated to
+  an App service.
 - `Factory`: runtime creation of the pixel-style shuttle, rackets, markers,
   guide meshes, and materials.
 
@@ -75,3 +77,26 @@ The next-stage cleanup moved these previously inline rules into Gameplay:
 Scene execution remains in App: transforms, trails, markers, camera preview,
 animations, and coroutine timing stay outside pure logic so gameplay behavior
 does not drift during structural cleanup.
+
+## App Services
+
+The App assembly now keeps small scene-facing helpers beside the controller:
+
+- `ShuttleFeedRuntimeHud`: owns the runtime uGUI hierarchy and text updates.
+- `OpponentPoseAnimator`: owns opponent racket/body pose interpolation.
+- `OpponentMovementRunner`: owns opponent ground movement, preparation pose
+  blending, racket face alignment, and run stamina spending.
+- `ShuttleFlightRunner`: owns per-frame shuttle movement, net crossing checks,
+  slow-motion transitions, and shuttle history callbacks.
+- `ShuttleReturnPlanner`: owns scene-facing return-shot target, duration,
+  arc-height, and trail-palette choices for existing player/opponent shots.
+
+`ShuttleFeedController` still coordinates lifecycle and coroutines, but these
+helpers keep reusable execution details out of the large partial files.
+
+## Input Services
+
+`SensorBadmintonInputSource` owns input fusion between camera pose and phone
+racket frames. `MediaPipePoseInputProvider` is file-isolated and keeps the
+MediaPipe-enabled and fallback implementations behind the same internal
+`IBadmintonPoseInputProvider` boundary.

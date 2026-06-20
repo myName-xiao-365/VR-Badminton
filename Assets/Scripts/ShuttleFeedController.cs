@@ -10,7 +10,7 @@ namespace VRBadminton.App
 {
     public sealed partial class ShuttleFeedController : MonoBehaviour
     {
-        private enum ShotType
+        internal enum ShotType
         {
             Net,
             Drop,
@@ -21,7 +21,7 @@ namespace VRBadminton.App
             Out
         }
 
-        private enum OpponentShotType
+        internal enum OpponentShotType
         {
             Net,
             Drop,
@@ -242,6 +242,10 @@ namespace VRBadminton.App
         private bool resolutionOptionsOpen;
         private bool isPaused;
         private ShuttleFeedRuntimeHud runtimeHud;
+        private readonly OpponentPoseAnimator opponentPoseAnimator = new OpponentPoseAnimator();
+        private readonly OpponentMovementRunner opponentMovementRunner = new OpponentMovementRunner();
+        private readonly ShuttleReturnPlanner shuttleReturnPlanner = new ShuttleReturnPlanner();
+        private readonly ShuttleFlightRunner shuttleFlightRunner = new ShuttleFlightRunner();
         private bool showRacketCenterGuide;
         private ScreenState screenState = ScreenState.MainMenu;
         private bool hasSavedMatch;

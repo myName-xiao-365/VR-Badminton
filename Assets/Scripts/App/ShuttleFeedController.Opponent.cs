@@ -10,6 +10,13 @@ namespace VRBadminton.App
 {
     public sealed partial class ShuttleFeedController
     {
+        private OpponentRig CurrentOpponentRig =>
+            new OpponentRig(
+                opponentPlayer,
+                opponentBody,
+                opponentRacket,
+                opponentRacketFace);
+
         private OpponentShotType ChooseOpponentShot(bool canSmash, bool fromFrontCourt)
         {
             OpponentDecision decision = OpponentStrategy.Choose(
@@ -622,54 +629,25 @@ namespace VRBadminton.App
             bool jumping,
             float jumpPhase)
         {
-            Vector3 startPosition = opponentRacket.localPosition;
-            Quaternion startRotation = opponentRacket.localRotation;
-            Quaternion startBodyRotation = opponentBody.localRotation;
-            float startHeight = opponentPlayer.position.y;
-            float elapsed = 0f;
-            while (elapsed < duration)
-            {
-                elapsed += Time.deltaTime;
-                float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
-                opponentRacket.localPosition = Vector3.Lerp(
-                    startPosition,
-                    targetPosition,
-                    t);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    startRotation,
-                    targetRotation,
-                    t);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    startBodyRotation,
-                    targetBodyRotation,
-                    t);
-                if (jumping)
-                {
-                    Vector3 bodyPosition = opponentPlayer.position;
-                    bodyPosition.y = Mathf.Lerp(
-                        startHeight,
-                        0.55f + 0.82f * jumpPhase,
-                        t);
-                    opponentPlayer.position = bodyPosition;
-                }
-                yield return null;
-            }
+            return opponentPoseAnimator.AnimatePose(
+                opponentPlayer,
+                opponentBody,
+                opponentRacket,
+                targetPosition,
+                targetRotation,
+                targetBodyRotation,
+                duration,
+                jumping,
+                jumpPhase);
         }
 
         private Vector3 GetOpponentReadyPosition(Vector3 contactPoint, float sourceSide)
         {
-            bool backhand = ShouldOpponentUseBackhand(contactPoint);
-            float handSide = backhand ? 1f : -1f;
-            float readyZ = contactPoint.z + 0.12f;
-            if (contactPoint.z < opponentFrontCourtReadyDepth * CourtLengthScale)
-            {
-                readyZ = opponentFrontCourtReadyDepth * CourtLengthScale;
-            }
-
-            return new Vector3(
-                contactPoint.x - handSide * 0.72f,
-                0.55f,
-                readyZ);
+            return opponentMovementRunner.GetReadyPosition(
+                CurrentOpponentRig,
+                contactPoint,
+                opponentFrontCourtReadyDepth,
+                CourtLengthScale);
         }
 
         private void MoveOpponentTowards(
@@ -677,57 +655,30 @@ namespace VRBadminton.App
             Vector3 contactPoint,
             float sourceSide)
         {
-            Vector3 previousPosition = opponentPlayer.position;
-            Vector3 groundedTarget = new Vector3(
-                readyPosition.x,
-                0.55f,
-                readyPosition.z);
-            opponentPlayer.position = Vector3.MoveTowards(
-                opponentPlayer.position,
-                groundedTarget,
-                opponentMoveSpeed * Time.deltaTime);
-            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
-
-            bool backhand = ShouldOpponentUseBackhand(contactPoint);
-            PositionOpponentRacket(contactPoint, sourceSide, backhand);
-            Quaternion bodyTarget = Quaternion.Euler(
-                0f,
-                backhand ? 138f : 16f,
-                backhand ? -9f : 3f);
-            opponentBody.localRotation = Quaternion.Slerp(
-                opponentBody.localRotation,
-                bodyTarget,
-                8f * Time.deltaTime);
+            opponentStamina = opponentMovementRunner.MoveTowards(
+                CurrentOpponentRig,
+                readyPosition,
+                contactPoint,
+                sourceSide,
+                opponentMoveSpeed,
+                Time.deltaTime,
+                opponentStamina,
+                opponentRunStaminaPerMeter);
         }
 
         private void UpdateOpponentReturnToCenter()
         {
-            if (!opponentReturningToCenter ||
-                opponentStamina <= 0f ||
-                opponentPlayer == null)
-            {
-                return;
-            }
-
-            Vector3 center = new Vector3(
-                0f,
-                opponentPlayer.position.y,
-                3.65f * CourtLengthScale);
-            Vector3 previousPosition = opponentPlayer.position;
-            opponentPlayer.position = Vector3.MoveTowards(
-                opponentPlayer.position,
-                center,
-                opponentRecoverySpeed * Time.deltaTime);
-            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
-
-            Vector2 currentGround = new Vector2(
-                opponentPlayer.position.x,
-                opponentPlayer.position.z);
-            Vector2 centerGround = new Vector2(center.x, center.z);
-            if (Vector2.Distance(currentGround, centerGround) <= 0.04f)
-            {
-                opponentReturningToCenter = false;
-            }
+            OpponentReturnToCenterResult result =
+                opponentMovementRunner.UpdateReturnToCenter(
+                    CurrentOpponentRig,
+                    opponentReturningToCenter,
+                    opponentStamina,
+                    opponentRecoverySpeed,
+                    Time.deltaTime,
+                    CourtLengthScale,
+                    opponentRunStaminaPerMeter);
+            opponentStamina = result.Stamina;
+            opponentReturningToCenter = result.ReturningToCenter;
         }
 
         private void UpdateOpponentForehandClearPreparation(
@@ -735,90 +686,16 @@ namespace VRBadminton.App
             Vector3 readyPosition,
             Vector3 contactPoint)
         {
-            Vector3 previousPosition = opponentPlayer.position;
-            Vector3 groundedTarget = new Vector3(
-                readyPosition.x,
-                0.55f,
-                readyPosition.z);
-            opponentPlayer.position = Vector3.MoveTowards(
-                opponentPlayer.position,
-                groundedTarget,
-                opponentMoveSpeed * Time.deltaTime);
-            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
-
-            approachProgress = Mathf.Clamp01(approachProgress);
-            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
-            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
-            Quaternion readyBodyRotation = Quaternion.identity;
-
-            Vector3 sideRacketPosition = new Vector3(-0.5f, 1.2f, 0.18f);
-            Quaternion sideRacketRotation = Quaternion.Euler(-18f, 180f, 32f);
-            Quaternion sideBodyRotation = Quaternion.Euler(-5f, 58f, 6f);
-
-            Vector3 drawRacketPosition = new Vector3(-0.26f, 1.08f, 0.56f);
-            Quaternion drawRacketRotation = Quaternion.Euler(58f, 180f, 94f);
-            Quaternion drawBodyRotation = Quaternion.Euler(-10f, 88f, 11f);
-
-            if (approachProgress < 0.38f)
-            {
-                float t = Mathf.SmoothStep(0f, 1f, approachProgress / 0.38f);
-                opponentRacket.localPosition = Vector3.Lerp(
-                    readyRacketPosition,
-                    sideRacketPosition,
-                    t);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    readyRacketRotation,
-                    sideRacketRotation,
-                    t);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    readyBodyRotation,
-                    sideBodyRotation,
-                    t);
-            }
-            else
-            {
-                float t = Mathf.SmoothStep(
-                    0f,
-                    1f,
-                    (approachProgress - 0.38f) / 0.62f);
-                opponentRacket.localPosition = Vector3.Lerp(
-                    sideRacketPosition,
-                    drawRacketPosition,
-                    t);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    sideRacketRotation,
-                    drawRacketRotation,
-                    t);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    sideBodyRotation,
-                    drawBodyRotation,
-                    t);
-            }
-
-            if (approachProgress > 0.92f)
-            {
-                Quaternion contactRotation = Quaternion.Euler(0f, 180f, 0f);
-                float t = Mathf.SmoothStep(
-                    0f,
-                    1f,
-                    (approachProgress - 0.92f) / 0.08f);
-                Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
-                Vector3 contactPosition =
-                    localContact -
-                    contactRotation * opponentRacketFace.localPosition;
-                opponentRacket.localPosition = Vector3.Lerp(
-                    opponentRacket.localPosition,
-                    contactPosition,
-                    t);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    opponentRacket.localRotation,
-                    contactRotation,
-                    t);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    drawBodyRotation,
-                    Quaternion.identity,
-                    t);
-            }
+            opponentStamina =
+                opponentMovementRunner.UpdateForehandClearPreparation(
+                    CurrentOpponentRig,
+                    approachProgress,
+                    readyPosition,
+                    contactPoint,
+                    opponentMoveSpeed,
+                    Time.deltaTime,
+                    opponentStamina,
+                    opponentRunStaminaPerMeter);
         }
 
         private void UpdateOpponentBackhandClearPreparation(
@@ -826,90 +703,16 @@ namespace VRBadminton.App
             Vector3 readyPosition,
             Vector3 contactPoint)
         {
-            Vector3 previousPosition = opponentPlayer.position;
-            Vector3 groundedTarget = new Vector3(
-                readyPosition.x,
-                0.55f,
-                readyPosition.z);
-            opponentPlayer.position = Vector3.MoveTowards(
-                opponentPlayer.position,
-                groundedTarget,
-                opponentMoveSpeed * Time.deltaTime);
-            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
-
-            approachProgress = Mathf.Clamp01(approachProgress);
-            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
-            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
-            Quaternion readyBodyRotation = Quaternion.identity;
-
-            Vector3 turnRacketPosition = new Vector3(-0.28f, 1.02f, 0.08f);
-            Quaternion turnRacketRotation = Quaternion.Euler(18f, 96f, 72f);
-            Quaternion turnBodyRotation = Quaternion.Euler(-4f, -72f, -5f);
-
-            Vector3 drawRacketPosition = new Vector3(0.34f, 1.08f, 0.48f);
-            Quaternion drawRacketRotation = Quaternion.Euler(8f, 88f, 96f);
-            Quaternion drawBodyRotation = Quaternion.Euler(-7f, -148f, -8f);
-
-            if (approachProgress < 0.34f)
-            {
-                float t = Mathf.SmoothStep(0f, 1f, approachProgress / 0.34f);
-                opponentRacket.localPosition = Vector3.Lerp(
-                    readyRacketPosition,
-                    turnRacketPosition,
-                    t);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    readyRacketRotation,
-                    turnRacketRotation,
-                    t);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    readyBodyRotation,
-                    turnBodyRotation,
-                    t);
-            }
-            else
-            {
-                float t = Mathf.SmoothStep(
-                    0f,
-                    1f,
-                    (approachProgress - 0.34f) / 0.66f);
-                opponentRacket.localPosition = Vector3.Lerp(
-                    turnRacketPosition,
-                    drawRacketPosition,
-                    t);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    turnRacketRotation,
-                    drawRacketRotation,
-                    t);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    turnBodyRotation,
-                    drawBodyRotation,
-                    t);
-            }
-
-            if (approachProgress > 0.9f)
-            {
-                Quaternion contactRotation = Quaternion.Euler(0f, 0f, 0f);
-                float t = Mathf.SmoothStep(
-                    0f,
-                    1f,
-                    (approachProgress - 0.9f) / 0.1f);
-                Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
-                Vector3 contactPosition =
-                    localContact -
-                    contactRotation * opponentRacketFace.localPosition;
-                opponentRacket.localPosition = Vector3.Lerp(
-                    opponentRacket.localPosition,
-                    contactPosition,
-                    t);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    opponentRacket.localRotation,
-                    contactRotation,
-                    t);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    drawBodyRotation,
-                    Quaternion.Euler(0f, -180f, 0f),
-                    t);
-            }
+            opponentStamina =
+                opponentMovementRunner.UpdateBackhandClearPreparation(
+                    CurrentOpponentRig,
+                    approachProgress,
+                    readyPosition,
+                    contactPoint,
+                    opponentMoveSpeed,
+                    Time.deltaTime,
+                    opponentStamina,
+                    opponentRunStaminaPerMeter);
         }
 
         private void UpdateOpponentForehandNetPreparation(
@@ -917,54 +720,16 @@ namespace VRBadminton.App
             Vector3 readyPosition,
             Vector3 contactPoint)
         {
-            Vector3 previousPosition = opponentPlayer.position;
-            Vector3 groundedTarget = new Vector3(
-                readyPosition.x,
-                0.55f,
-                readyPosition.z);
-            opponentPlayer.position = Vector3.MoveTowards(
-                opponentPlayer.position,
-                groundedTarget,
-                opponentMoveSpeed * Time.deltaTime);
-            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
-
-            approachProgress = Mathf.Clamp01(approachProgress);
-            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
-            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
-            Quaternion loweredBody = Quaternion.Euler(7f, 8f, -4f);
-            Quaternion waitingRotation = GetOpponentForehandNetWaitingRotation();
-            SetOpponentRacketFaceReversed(true);
-            Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
-            Vector3 waitingPosition =
-                localContact -
-                waitingRotation * opponentRacketFace.localPosition;
-
-            float prepareT = Mathf.SmoothStep(
-                0f,
-                1f,
-                Mathf.InverseLerp(0.08f, 0.55f, approachProgress));
-            if (approachProgress < 0.55f)
-            {
-                opponentRacket.localPosition = Vector3.Lerp(
-                    readyRacketPosition,
-                    waitingPosition,
-                    prepareT);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    readyRacketRotation,
-                    waitingRotation,
-                    prepareT);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    Quaternion.identity,
-                    loweredBody,
-                    prepareT);
-            }
-            else
-            {
-                // Hold the face on the predicted path until the shuttle arrives.
-                opponentRacket.localPosition = waitingPosition;
-                opponentRacket.localRotation = waitingRotation;
-                opponentBody.localRotation = loweredBody;
-            }
+            opponentStamina =
+                opponentMovementRunner.UpdateForehandNetPreparation(
+                    CurrentOpponentRig,
+                    approachProgress,
+                    readyPosition,
+                    contactPoint,
+                    opponentMoveSpeed,
+                    Time.deltaTime,
+                    opponentStamina,
+                    opponentRunStaminaPerMeter);
         }
 
         private void UpdateOpponentBackhandNetPreparation(
@@ -972,107 +737,63 @@ namespace VRBadminton.App
             Vector3 readyPosition,
             Vector3 contactPoint)
         {
-            Vector3 previousPosition = opponentPlayer.position;
-            Vector3 groundedTarget = new Vector3(
-                readyPosition.x,
-                0.55f,
-                readyPosition.z);
-            opponentPlayer.position = Vector3.MoveTowards(
-                opponentPlayer.position,
-                groundedTarget,
-                opponentMoveSpeed * Time.deltaTime);
-            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
-
-            approachProgress = Mathf.Clamp01(approachProgress);
-            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
-            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
-            Quaternion loweredBody = Quaternion.Euler(7f, -45f, 5f);
-            Quaternion waitingRotation = GetOpponentBackhandNetWaitingRotation();
-            SetOpponentRacketFaceReversed(false);
-            Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
-            Vector3 waitingPosition =
-                localContact -
-                waitingRotation * opponentRacketFace.localPosition;
-
-            float prepareT = Mathf.SmoothStep(
-                0f,
-                1f,
-                Mathf.InverseLerp(0.08f, 0.55f, approachProgress));
-            if (approachProgress < 0.55f)
-            {
-                opponentRacket.localPosition = Vector3.Lerp(
-                    readyRacketPosition,
-                    waitingPosition,
-                    prepareT);
-                opponentRacket.localRotation = Quaternion.Slerp(
-                    readyRacketRotation,
-                    waitingRotation,
-                    prepareT);
-                opponentBody.localRotation = Quaternion.Slerp(
-                    Quaternion.identity,
-                    loweredBody,
-                    prepareT);
-            }
-            else
-            {
-                opponentRacket.localPosition = waitingPosition;
-                opponentRacket.localRotation = waitingRotation;
-                opponentBody.localRotation = loweredBody;
-            }
+            opponentStamina =
+                opponentMovementRunner.UpdateBackhandNetPreparation(
+                    CurrentOpponentRig,
+                    approachProgress,
+                    readyPosition,
+                    contactPoint,
+                    opponentMoveSpeed,
+                    Time.deltaTime,
+                    opponentStamina,
+                    opponentRunStaminaPerMeter);
         }
 
         private void AlignOpponentRacketFace(
             Vector3 contactPoint,
             Quaternion racketRotation)
         {
-            opponentRacket.localRotation = racketRotation;
-            Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
-            opponentRacket.localPosition =
-                localContact -
-                racketRotation * opponentRacketFace.localPosition;
+            opponentMovementRunner.AlignRacketFace(
+                CurrentOpponentRig,
+                contactPoint,
+                racketRotation);
         }
 
         private static Vector3 GetOpponentReadyRacketPosition()
         {
-            return new Vector3(-0.52f, 0.308f, -0.32f);
+            return OpponentMovementRunner.GetReadyRacketPosition();
         }
 
         private static Quaternion GetOpponentReadyRacketRotation()
         {
-            return Quaternion.Euler(18.021f, 98.821f, -53.36f);
+            return OpponentMovementRunner.GetReadyRacketRotation();
         }
 
         private static Quaternion GetOpponentForehandNetWaitingRotation()
         {
-            return Quaternion.Euler(100f, 180f, -4f);
+            return OpponentMovementRunner.GetForehandNetWaitingRotation();
         }
 
         private static Quaternion GetOpponentBackhandNetWaitingRotation()
         {
-            return Quaternion.Euler(100f, 180f, -4f);
+            return OpponentMovementRunner.GetBackhandNetWaitingRotation();
         }
 
         private void SetOpponentRacketFaceReversed(bool reversed)
         {
-            opponentRacketFace.localRotation = reversed
-                ? Quaternion.Euler(0f, 180f, 0f)
-                : Quaternion.identity;
+            opponentMovementRunner.SetRacketFaceReversed(CurrentOpponentRig, reversed);
         }
 
         private float OpponentDistanceTo(Vector3 readyPosition)
         {
-            Vector2 opponentGround = new Vector2(
-                opponentPlayer.position.x,
-                opponentPlayer.position.z);
-            Vector2 targetGround = new Vector2(readyPosition.x, readyPosition.z);
-            return Vector2.Distance(opponentGround, targetGround);
+            return opponentMovementRunner.DistanceTo(CurrentOpponentRig, readyPosition);
         }
 
         private bool ShouldOpponentUseBackhand(Vector3 contactPoint)
         {
-            // The opponent faces -Z: world -X is its right (forehand) side,
-            // while world +X is its left (backhand) side.
-            return contactPoint.x > opponentPlayer.position.x;
+            return opponentMovementRunner.ShouldUseBackhand(
+                CurrentOpponentRig,
+                contactPoint);
         }
 
         private void PositionOpponentRacket(
@@ -1080,20 +801,11 @@ namespace VRBadminton.App
             float sourceSide,
             bool backhand)
         {
-            SetOpponentRacketFaceReversed(false);
-            float handSide = backhand ? 1f : -1f;
-            float desiredHeight = Mathf.Clamp(
-                contactPoint.y - opponentPlayer.position.y - 1.35f,
-                0.35f,
-                1.65f);
-            opponentRacket.localPosition = new Vector3(
-                handSide * 0.72f,
-                desiredHeight,
-                -0.02f);
-            opponentRacket.localRotation = Quaternion.Euler(
-                18f,
-                backhand ? 0f : 180f,
-                (backhand ? -sourceSide : sourceSide) * 12f);
+            opponentMovementRunner.PositionRacket(
+                CurrentOpponentRig,
+                contactPoint,
+                sourceSide,
+                backhand);
         }
 
         private void PrepareOpponentRacket(
@@ -1102,14 +814,12 @@ namespace VRBadminton.App
             bool backhand,
             bool jumpSmash)
         {
-            PositionOpponentRacket(contactPoint, sourceSide, backhand);
-            if (jumpSmash)
-            {
-                Vector3 bodyPosition = opponentPlayer.position;
-                bodyPosition.y = 0.55f;
-                opponentPlayer.position = bodyPosition;
-            }
-
+            opponentMovementRunner.PrepareRacket(
+                CurrentOpponentRig,
+                contactPoint,
+                sourceSide,
+                backhand,
+                jumpSmash);
         }
 
     }

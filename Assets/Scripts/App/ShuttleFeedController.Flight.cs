@@ -566,53 +566,17 @@ namespace VRBadminton.App
             temporarySlowMotionArmed =
                 temporarySlowMotionEnabled &&
                 shot != ShotType.Miss;
-            Vector3 target;
-            float duration;
-            float arcHeight;
+            ShuttlePlayerReturnPlan returnPlan =
+                shuttleReturnPlanner.CreatePlayerReturnPlan(
+                    shot,
+                    CourtLengthScale,
+                    minimumSwingSpeed,
+                    fastSwingSpeed,
+                    pendingSwingSpeed);
+            Vector3 target = returnPlan.Target;
+            float duration = returnPlan.Duration;
+            float arcHeight = returnPlan.ArcHeight;
             SetTrailForShot(shot);
-
-            switch (shot)
-            {
-                case ShotType.Drop:
-                    target = new Vector3(
-                        Random.Range(-2.2f, 2.2f),
-                        0.09f,
-                        Random.Range(1.55f, 2.15f) * CourtLengthScale);
-                    duration = 1.1f;
-                    arcHeight = 1.35f;
-                    break;
-                case ShotType.Clear:
-                    target = new Vector3(Random.Range(-2.3f, 2.3f), 0.09f, 6.2f * CourtLengthScale);
-                    duration = 2f;
-                    arcHeight = 4.5f;
-                    break;
-                case ShotType.Smash:
-                    target = new Vector3(Random.Range(-2.25f, 2.25f), 0.09f, 4.7f * CourtLengthScale);
-                    duration = Mathf.Lerp(
-                        0.82f,
-                        0.42f,
-                        Mathf.InverseLerp(minimumSwingSpeed, fastSwingSpeed, pendingSwingSpeed));
-                    arcHeight = 0.18f;
-                    break;
-                case ShotType.Drive:
-                    target = new Vector3(Random.Range(-2.3f, 2.3f), 0.09f, 6.45f * CourtLengthScale);
-                    duration = 0.82f;
-                    arcHeight = 0.55f;
-                    break;
-                case ShotType.Out:
-                    target = new Vector3(Random.Range(-3.8f, 3.8f), 0.09f, 8.25f * CourtLengthScale);
-                    duration = 1.25f;
-                    arcHeight = 1.5f;
-                    break;
-                default:
-                    target = new Vector3(
-                        Random.Range(-1.9f, 1.9f),
-                        0.09f,
-                        Random.Range(1.45f, 1.95f) * CourtLengthScale);
-                    duration = 1.05f;
-                    arcHeight = 1.35f;
-                    break;
-            }
 
             bool returnUsesClearArc = shot == ShotType.Clear;
             float returnApexT = returnUsesClearArc ? 0.7f : 0.5f;
@@ -871,70 +835,28 @@ namespace VRBadminton.App
             Vector3 target,
             OpponentShotType shot)
         {
-            float duration;
-            float arcHeight;
-            bool isSmash = shot == OpponentShotType.Smash;
+            ShuttleOpponentReturnFlightPlan returnPlan =
+                shuttleReturnPlanner.CreateOpponentReturnFlight(shot);
+            SetTrailColors(
+                returnPlan.Trail.StartColor,
+                returnPlan.Trail.EndColor);
 
-            switch (shot)
-            {
-                case OpponentShotType.Net:
-                    duration = 1.15f;
-                    arcHeight = 1.35f;
-                    SetTrailColors(
-                        new Color(0.25f, 1f, 0.35f, 0.82f),
-                        new Color(0.2f, 0.8f, 0.25f, 0f));
-                    break;
-                case OpponentShotType.Drop:
-                    duration = 1.35f;
-                    arcHeight = 1.65f;
-                    SetTrailColors(
-                        new Color(0.25f, 1f, 0.35f, 0.82f),
-                        new Color(0.2f, 0.8f, 0.25f, 0f));
-                    break;
-                case OpponentShotType.Smash:
-                    duration = 0.85f;
-                    arcHeight = 0.32f;
-                    SetTrailColors(
-                        new Color(1f, 0.12f, 0.08f, 0.9f),
-                        new Color(0.85f, 0.02f, 0.02f, 0f));
-                    break;
-                default:
-                    duration = shot == OpponentShotType.Lift ? 2.4f : 2.25f;
-                    arcHeight = shot == OpponentShotType.Lift ? 5.25f : 4.85f;
-                    SetTrailColors(
-                        new Color(1f, 0.9f, 0.42f, 0.82f),
-                        new Color(1f, 0.82f, 0.25f, 0f));
-                    break;
-            }
-
-            yield return PlayIncomingShuttle(start, target, duration, arcHeight, isSmash);
+            yield return PlayIncomingShuttle(
+                start,
+                target,
+                returnPlan.Duration,
+                returnPlan.ArcHeight,
+                returnPlan.IsSmash);
         }
 
-        private static Vector3 CreateOpponentReturnTarget(
+        private Vector3 CreateOpponentReturnTarget(
             float sourceSide,
             OpponentShotType shot)
         {
-            float targetDepth;
-            switch (shot)
-            {
-                case OpponentShotType.Net:
-                    targetDepth = Random.Range(1.45f, 1.95f);
-                    break;
-                case OpponentShotType.Drop:
-                    targetDepth = Random.Range(1.75f, 2.25f);
-                    break;
-                case OpponentShotType.Smash:
-                    targetDepth = Random.Range(3.4f, 5.2f);
-                    break;
-                default:
-                    targetDepth = Random.Range(5.98f, 6.58f);
-                    break;
-            }
-
-            return new Vector3(
-                -sourceSide * Random.Range(0.85f, 2.45f),
-                0.09f,
-                -targetDepth * CourtLengthScale);
+            return shuttleReturnPlanner.CreateOpponentReturnTarget(
+                sourceSide,
+                shot,
+                CourtLengthScale);
         }
 
         private Quaternion GetOpponentClearContactRotation(
@@ -957,29 +879,9 @@ namespace VRBadminton.App
 
         private void SetTrailForShot(ShotType shot)
         {
-            switch (shot)
-            {
-                case ShotType.Clear:
-                    SetTrailColors(
-                        new Color(1f, 0.9f, 0.42f, 0.82f),
-                        new Color(1f, 0.82f, 0.25f, 0f));
-                    break;
-                case ShotType.Smash:
-                    SetTrailColors(
-                        new Color(1f, 0.12f, 0.08f, 0.9f),
-                        new Color(0.85f, 0.02f, 0.02f, 0f));
-                    break;
-                case ShotType.Drive:
-                    SetTrailColors(
-                        new Color(1f, 0.28f, 0.68f, 0.88f),
-                        new Color(0.95f, 0.12f, 0.55f, 0f));
-                    break;
-                default:
-                    SetTrailColors(
-                        new Color(0.25f, 1f, 0.35f, 0.82f),
-                        new Color(0.2f, 0.8f, 0.25f, 0f));
-                    break;
-            }
+            ShuttleTrailPalette trail =
+                shuttleReturnPlanner.GetPlayerTrailPalette(shot);
+            SetTrailColors(trail.StartColor, trail.EndColor);
         }
 
         private void SetTrailColors(Color startColor, Color endColor)
@@ -1045,59 +947,25 @@ namespace VRBadminton.App
         {
             using (FlightMoveMarker.Auto())
             {
-                bool crossedNet =
-                    (previousPosition.z < 0f && position.z >= 0f) ||
-                    (previousPosition.z > 0f && position.z <= 0f);
-                if (crossedNet)
+                ShuttleFlightMoveState state = new ShuttleFlightMoveState(
+                    netFaultTriggered,
+                    temporarySlowMotionArmed,
+                    temporarySlowMotionActive);
+                shuttleFlightRunner.Move(
+                    shuttle,
+                    apexProjection,
+                    position,
+                    ref previousPosition,
+                    currentFlightHitter,
+                    ref state,
+                    RecordShuttleFrame);
+                netFaultTriggered = state.NetFaultTriggered;
+                temporarySlowMotionArmed = state.TemporarySlowMotionArmed;
+                temporarySlowMotionActive = state.TemporarySlowMotionActive;
+                if (state.TimeScaleChanged)
                 {
-                    float denominator = position.z - previousPosition.z;
-                    float crossingT = Mathf.Abs(denominator) < 0.0001f
-                        ? 0f
-                        : Mathf.Clamp01(-previousPosition.z / denominator);
-                    Vector3 crossingPoint = Vector3.Lerp(previousPosition, position, crossingT);
-                    if (crossingPoint.y < 1.53f)
-                    {
-                        netFaultTriggered = true;
-                        crossingPoint.z = currentFlightHitter == 1 ? -0.035f : 0.035f;
-                        shuttle.position = crossingPoint;
-                        previousPosition = crossingPoint;
-                        return;
-                    }
-
-                    if (currentFlightHitter == 1 &&
-                        temporarySlowMotionArmed &&
-                        !temporarySlowMotionActive)
-                    {
-                        temporarySlowMotionArmed = false;
-                        temporarySlowMotionActive = true;
-                        Time.timeScale = 0.2f;
-                    }
-                    else if (currentFlightHitter == 2 &&
-                        temporarySlowMotionActive)
-                    {
-                        temporarySlowMotionActive = false;
-                        Time.timeScale = 1f;
-                    }
+                    Time.timeScale = state.TimeScale;
                 }
-
-                Vector3 direction = position - previousPosition;
-                if (direction.sqrMagnitude > 0.00001f)
-                {
-                    shuttle.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
-                }
-
-                Vector3 velocity = direction / Mathf.Max(Time.deltaTime, 0.001f);
-                RecordShuttleFrame(position, velocity);
-                shuttle.position = position;
-                if (apexProjection.gameObject.activeSelf)
-                {
-                    apexProjection.position = new Vector3(
-                        position.x,
-                        0.034f,
-                        position.z);
-                    apexProjection.rotation = Quaternion.Euler(0f, 45f, 0f);
-                }
-                previousPosition = position;
             }
         }
 
