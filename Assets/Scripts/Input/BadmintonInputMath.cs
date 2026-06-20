@@ -138,6 +138,32 @@ namespace VRBadminton.Input
             return Mathf.Clamp(pitch + 45f, -45f, 120f);
         }
 
+        // Sensor swing direction is reported in phone space. For front-court lifts, the mirrored
+        // court-side motion can invert the vertical sign even though the gameplay intent is the same.
+        public static bool IsSideMirroredLiftGesture(
+            Vector3 swingDirection,
+            float racketLateralPosition,
+            float faceAngle)
+        {
+            // Ignore weak vertical evidence and near-center samples so generic swings are not
+            // reclassified.
+            if (swingDirection.sqrMagnitude < 0.0001f ||
+                Mathf.Abs(swingDirection.y) < 0.18f ||
+                Mathf.Abs(racketLateralPosition) < 0.18f)
+            {
+                return false;
+            }
+
+            if (Mathf.Sign(swingDirection.y) != Mathf.Sign(racketLateralPosition))
+            {
+                return false;
+            }
+
+            // Keep the correction in a lift-capable face range; steep closed faces use the
+            // normal resolver.
+            return faceAngle >= -45f && faceAngle <= 85f;
+        }
+
         public static float RelAngle(float value, float offset)
         {
             float x = value - offset;

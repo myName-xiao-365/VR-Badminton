@@ -220,6 +220,43 @@ namespace VRBadminton.Tests
         }
 
         [Test]
+        public void SideMirroredLiftGestureRecognizesBothCourtSides()
+        {
+            // These vectors mirror the successful front-court lift samples seen on each court side.
+            Assert.IsTrue(BadmintonInputMath.IsSideMirroredLiftGesture(
+                new Vector3(0.54f, 0.82f, 0.17f),
+                1.5f,
+                -27f));
+            Assert.IsTrue(BadmintonInputMath.IsSideMirroredLiftGesture(
+                new Vector3(-0.54f, -0.82f, -0.17f),
+                -1.5f,
+                22f));
+        }
+
+        [Test]
+        public void SideMirroredLiftGestureRejectsAmbiguousOrNonLiftSamples()
+        {
+            // Opposite-side, center-line, nearly-flat, and closed-face samples should stay
+            // uncorrected.
+            Assert.IsFalse(BadmintonInputMath.IsSideMirroredLiftGesture(
+                new Vector3(-0.54f, -0.82f, -0.17f),
+                1.5f,
+                22f));
+            Assert.IsFalse(BadmintonInputMath.IsSideMirroredLiftGesture(
+                new Vector3(0.54f, 0.82f, 0.17f),
+                0.05f,
+                22f));
+            Assert.IsFalse(BadmintonInputMath.IsSideMirroredLiftGesture(
+                new Vector3(0.94f, 0.08f, 0.33f),
+                1.5f,
+                22f));
+            Assert.IsFalse(BadmintonInputMath.IsSideMirroredLiftGesture(
+                new Vector3(0.54f, 0.82f, 0.17f),
+                1.5f,
+                95f));
+        }
+
+        [Test]
         public void RacketFrameJsonPrefersRotationMatrixOverQuaternionPayload()
         {
             const string json = "{" +

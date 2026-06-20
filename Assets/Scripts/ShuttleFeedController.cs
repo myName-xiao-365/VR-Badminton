@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 using VRBadminton.Input;
 
@@ -98,6 +99,8 @@ namespace VRBadminton.Gameplay
         [SerializeField] private float hitHistorySeconds = 0.32f;
         [SerializeField, Range(0.1f, 0.9f)] private float minimumHitQuality = 0.42f;
         [SerializeField] private bool showHitDebug;
+        // Keep enabled while tuning sensor-mode hit detection; logs are gated to sensor input only.
+        [SerializeField] private bool logSensorHitDebug = true;
 
         [Header("Camera View")]
         [SerializeField] private bool useSwitchStyleCamera = true;
@@ -214,6 +217,7 @@ namespace VRBadminton.Gameplay
         private float lastRecordedRacketTime;
         private float pendingSwingStartedAt;
         private RacketHitResult lastHitResult;
+        private int sensorHitLogSequence;
         private Camera gameplayCamera;
         private const int SwitchCameraPresetVersion = 10;
         private float playerServeSide = 1f;
@@ -538,6 +542,9 @@ namespace VRBadminton.Gameplay
                 pendingSwingTime -= Time.deltaTime;
                 if (pendingSwingTime <= 0f)
                 {
+                    LogSensorHitDebug(
+                        "swing_expire",
+                        $"pendingAge={F(pendingSwingStartedAt > 0f ? Time.time - pendingSwingStartedAt : 0f)}|{HitResultFields(lastHitResult)}");
                     swingPending = false;
                     pendingSwingStartedAt = 0f;
                 }
@@ -661,6 +668,9 @@ namespace VRBadminton.Gameplay
                 {
                     playerServeSpeed = speed;
                     playerServeGestureReady = true;
+                    LogSensorHitDebug(
+                        "serve_swing_accept",
+                        $"acceptedSpeed={F(speed)}|acceptedUp={B(inputSnapshot.SwingUpward)}|startAngle={F(inputSnapshot.SwingStartAngle)}");
                 }
 
                 return;
@@ -674,13 +684,19 @@ namespace VRBadminton.Gameplay
                 return;
             }
 
+            // Resolve after the normal gesture, stale-data, and speed gates so the correction cannot
+            // create swings by itself.
+            bool resolvedSwingUpward = CurrentInputSwingUpward();
             swingPending = true;
-            swingUpward = inputSnapshot.SwingUpward;
+            swingUpward = resolvedSwingUpward;
             pendingSwingSpeed = speed;
             pendingStartAngle = inputSnapshot.SwingStartAngle;
             pendingSwingTime = contactWindow;
             pendingSwingStartedAt = Time.time;
             swingCooldown = 0.22f;
+            LogSensorHitDebug(
+                "swing_accept",
+                $"acceptedSpeed={F(speed)}|acceptedUp={B(resolvedSwingUpward)}|startAngle={F(inputSnapshot.SwingStartAngle)}");
         }
 
         private void RecordRacketFrame()
@@ -700,6 +716,9 @@ namespace VRBadminton.Gameplay
                 : Vector3.zero;
 
             float activeSwingSpeed = Mathf.Max(inputSnapshot.SwingGameSpeed, pendingSwingSpeed);
+            // Contact resolution can backtrack through these frames, so store the same corrected
+            // swing class used at accept time.
+            bool frameSwingUpward = CurrentInputSwingUpward() || swingUpward;
             if (swingPending ||
                 inputSnapshot.HasSwingGesture ||
                 inputSnapshot.Swing.State == BadmintonSwingState.Prepare ||
@@ -710,7 +729,7 @@ namespace VRBadminton.Gameplay
                     1f,
                     13f,
                     Mathf.InverseLerp(minimumSwingSpeed * 0.45f, fastSwingSpeed, activeSwingSpeed));
-                velocity += DefaultWorldSwingDirection(inputSnapshot.SwingUpward || swingUpward) * boost;
+                velocity += DefaultWorldSwingDirection(frameSwingUpward) * boost;
             }
 
             racketHistory.Add(new RacketKinematicFrame
@@ -721,11 +740,11 @@ namespace VRBadminton.Gameplay
                 FaceRight = racketFace.right,
                 FaceUp = racketFace.up,
                 FaceVelocity = velocity,
-                SwingDirection = DefaultWorldSwingDirection(inputSnapshot.SwingUpward || swingUpward),
+                SwingDirection = DefaultWorldSwingDirection(frameSwingUpward),
                 SwingSpeed = activeSwingSpeed,
                 FaceAngle = currentFaceAngle,
                 TrackingConfidence = CurrentTrackingConfidence(),
-                SwingUpward = inputSnapshot.SwingUpward || swingUpward
+                SwingUpward = frameSwingUpward
             });
             PruneRacketHistory(now);
             lastRecordedRacketFacePosition = center;
@@ -828,6 +847,167 @@ namespace VRBadminton.Gameplay
             }
 
             return settings;
+        }
+
+        // Gameplay code should call this when it needs the sensor-corrected upward classification.
+        private bool CurrentInputSwingUpward()
+        {
+            return inputSnapshot.SwingUpward || SensorSideMirroredLiftCorrectionActive();
+        }
+
+        // Intentionally narrow: only sensor front-court lifts get corrected; serve, backcourt,
+        // and legacy paths keep the raw class.
+        private bool SensorSideMirroredLiftCorrectionActive()
+        {
+            if (inputMode != BadmintonInputMode.Sensor ||
+                !inputSnapshot.HasSwingGesture ||
+                inputSnapshot.SwingUpward ||
+                !incomingFrontCourt)
+            {
+                return false;
+            }
+
+            // The sensor swing direction is mirrored across court sides for this front-court
+            // lift motion.
+            return BadmintonInputMath.IsSideMirroredLiftGesture(
+                inputSnapshot.Swing.Direction,
+                SensorRacketLateralPosition(),
+                currentFaceAngle);
+        }
+
+        // Prefer the actual racket transform because contact tests use world-space racket geometry.
+        private float SensorRacketLateralPosition()
+        {
+            if (racketFace != null)
+            {
+                return racketFace.position.x;
+            }
+
+            if (inputSnapshot.Player.RightHand.Visible)
+            {
+                return inputSnapshot.Player.VirtualPosition.x + inputSnapshot.Player.RightHand.Relative.x * sensorHandLateralScale;
+            }
+
+            return playerGroundPosition.x;
+        }
+
+        // Pipe-delimited logs are easier to grep and compare across rallies in Editor.log.
+        private void LogSensorHitDebug(string eventName, string details = "")
+        {
+            if (!logSensorHitDebug || inputMode != BadmintonInputMode.Sensor)
+            {
+                return;
+            }
+
+            string suffix = string.IsNullOrEmpty(details) ? string.Empty : $"|{details}";
+            Debug.Log(
+                $"VRB_SENSOR_HIT|seq={++sensorHitLogSequence}|event={eventName}|" +
+                $"{SensorHitSnapshotFields()}{suffix}");
+        }
+
+        // Include both world-space and racket-local contact geometry so misses can be explained
+        // from a single log line.
+        private string SensorHitSnapshotFields()
+        {
+            Vector3 racketPosition = racketFace != null ? racketFace.position : Vector3.zero;
+            Vector3 racketForward = racketFace != null ? racketFace.forward : Vector3.forward;
+            Vector3 racketRight = racketFace != null ? racketFace.right : Vector3.right;
+            Vector3 racketUp = racketFace != null ? racketFace.up : Vector3.up;
+            Vector3 shuttlePosition = shuttle != null ? shuttle.position : Vector3.zero;
+            Vector3 shuttleVelocity = shuttleHistory.Count > 0
+                ? shuttleHistory[shuttleHistory.Count - 1].Velocity
+                : Vector3.zero;
+            Vector3 toShuttle = shuttlePosition - racketPosition;
+            float signedPlaneDistance = Vector3.Dot(toShuttle, racketForward);
+            float localX = Vector3.Dot(toShuttle, racketRight);
+            float localY = Vector3.Dot(toShuttle, racketUp);
+            bool mirrorLiftFix = SensorSideMirroredLiftCorrectionActive();
+            bool resolvedInputUp = inputSnapshot.SwingUpward || mirrorLiftFix;
+
+            return
+                $"time={F(Time.time)}" +
+                $"|playerStale={B(inputSnapshot.PlayerStale)}" +
+                $"|racketStale={B(inputSnapshot.RacketStale)}" +
+                $"|shuttleActive={B(shuttle != null && shuttle.gameObject.activeSelf)}" +
+                $"|swingPending={B(swingPending)}" +
+                $"|inputSwingUp={B(inputSnapshot.SwingUpward)}" +
+                $"|resolvedInputUp={B(resolvedInputUp)}" +
+                $"|mirrorLiftFix={B(mirrorLiftFix)}" +
+                $"|pendingSwingUp={B(swingUpward)}" +
+                $"|isBackhand={B(isBackhand)}" +
+                $"|frontCourt={B(incomingFrontCourt)}" +
+                $"|opponentSmash={B(incomingOpponentSmash)}" +
+                $"|smashReady={B(smashReceiveReady)}" +
+                $"|swingState={inputSnapshot.Swing.State}" +
+                $"|swingType={inputSnapshot.Swing.Type}" +
+                $"|impact={B(inputSnapshot.Swing.Impact)}" +
+                $"|sinceImpactMs={F(inputSnapshot.Swing.SinceImpactMs)}" +
+                $"|swingDir={V(inputSnapshot.Swing.Direction)}" +
+                $"|angularVel={V(inputSnapshot.Racket.AngularVelocity)}" +
+                $"|angularSpeed={F(inputSnapshot.Racket.AngularSpeed)}" +
+                $"|gameSpeed={F(inputSnapshot.SwingGameSpeed)}" +
+                $"|pendingSpeed={F(pendingSwingSpeed)}" +
+                $"|faceAngle={F(currentFaceAngle)}" +
+                $"|rawEuler={V(inputSnapshot.Racket.RawEuler)}" +
+                $"|racketPos={V(racketPosition)}" +
+                $"|racketForward={V(racketForward)}" +
+                $"|racketRight={V(racketRight)}" +
+                $"|racketUp={V(racketUp)}" +
+                $"|shuttlePos={V(shuttlePosition)}" +
+                $"|shuttleVel={V(shuttleVelocity)}" +
+                $"|toShuttle={V(toShuttle)}" +
+                $"|distance={F(toShuttle.magnitude)}" +
+                $"|plane={F(signedPlaneDistance)}" +
+                $"|localX={F(localX)}" +
+                $"|localY={F(localY)}";
+        }
+
+        // Keep result fields compact so they can be paired with the preceding input snapshot
+        // in the log.
+        private static string HitResultFields(RacketHitResult result)
+        {
+            return
+                $"hit={B(result.Hit)}" +
+                $"|consume={B(result.ConsumeSwing)}" +
+                $"|shot={result.Shot}" +
+                $"|reason={LogToken(result.Reason)}" +
+                $"|contactTime={F(result.ContactTime)}" +
+                $"|quality={F(result.Quality)}" +
+                $"|spatialQ={F(result.SpatialQuality)}" +
+                $"|timingQ={F(result.TimingQuality)}" +
+                $"|directionQ={F(result.DirectionQuality)}" +
+                $"|faceQ={F(result.FaceQuality)}" +
+                $"|powerQ={F(result.PowerQuality)}" +
+                $"|sweetSpot={F(result.SweetSpot01)}" +
+                $"|assist={B(result.AssistUsed)}" +
+                $"|magnet={B(result.MagnetUsed)}" +
+                $"|resultSwingUp={B(result.SwingUpward)}" +
+                $"|resultSpeed={F(result.SwingSpeed)}" +
+                $"|resultFaceAngle={F(result.FaceAngle)}" +
+                $"|contactPoint={V(result.ContactPoint)}";
+        }
+
+        // Field values stay single-token so simple grep/split tooling can parse them reliably.
+        private static string LogToken(string value)
+        {
+            return string.IsNullOrEmpty(value)
+                ? "none"
+                : value.Replace(' ', '_');
+        }
+
+        private static string B(bool value)
+        {
+            return value ? "1" : "0";
+        }
+
+        private static string F(float value)
+        {
+            return value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        private static string V(Vector3 value)
+        {
+            return $"{F(value.x)},{F(value.y)},{F(value.z)}";
         }
 
         private static Vector3 DefaultWorldSwingDirection(bool upward)
@@ -2268,6 +2448,10 @@ namespace VRBadminton.Gameplay
                 shuttleHistory,
                 context,
                 CurrentHitSettings());
+            if (lastHitResult.Hit || lastHitResult.ConsumeSwing)
+            {
+                LogSensorHitDebug("hit_resolve", HitResultFields(lastHitResult));
+            }
 
             if (lastHitResult.ConsumeSwing)
             {
