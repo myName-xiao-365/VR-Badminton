@@ -30,6 +30,9 @@ namespace VRBadminton.Gameplay
             ForehandOverhead,
             ForehandDrop,
             BackhandOverhead,
+            BackhandDrop,
+            ForehandNet,
+            BackhandNet,
             Net,
             Lift,
             SmashDefense,
@@ -81,6 +84,8 @@ namespace VRBadminton.Gameplay
         [Header("Opponent")]
         [SerializeField] private float opponentMoveSpeed = 4.2f;
         [SerializeField] private float opponentReachTolerance = 0.22f;
+        [SerializeField] private float opponentRecoverySpeed = 3.6f;
+        [SerializeField] private float opponentFrontCourtReadyDepth = 2.8f;
         [SerializeField] private float opponentMaxStamina = 100f;
         [SerializeField] private float opponentRunStaminaPerMeter = 0.35f;
         [SerializeField, Range(0f, 1f)] private float opponentSmashReceiveChance = 0.55f;
@@ -175,6 +180,7 @@ namespace VRBadminton.Gameplay
         private bool temporarySlowMotionArmed;
         private bool temporarySlowMotionActive;
         private bool temporarySlowMotionEnabled = true;
+        private bool opponentReturningToCenter;
 
         private void Awake()
         {
@@ -317,6 +323,7 @@ namespace VRBadminton.Gameplay
             UpdateJump();
             UpdateRacketPosition();
             UpdatePlayerPositionMarker();
+            UpdateOpponentReturnToCenter();
             ReadMouseSwing();
         }
 
@@ -1226,6 +1233,7 @@ namespace VRBadminton.Gameplay
             trajectoryGuide.gameObject.SetActive(false);
             jumpActive = false;
             jumpOffset = 0f;
+            opponentReturningToCenter = false;
         }
 
         private void RestartMatch()
@@ -1279,6 +1287,7 @@ namespace VRBadminton.Gameplay
 
             yield return AnimateOpponentHit(start, sourceSide);
             start = opponentRacketFace.position;
+            opponentReturningToCenter = true;
             if (incomingClear)
             {
                 SetTrailColors(
@@ -1307,6 +1316,7 @@ namespace VRBadminton.Gameplay
 
         private IEnumerator PlayerServe()
         {
+            opponentReturningToCenter = false;
             currentFlightHitter = 1;
             netFaultTriggered = false;
             float serviceSide = playerScore % 2 == 1 ? -1f : 1f;
@@ -1356,7 +1366,14 @@ namespace VRBadminton.Gameplay
             Vector3 previousPosition = serveStart;
             bool serveUsesClearArc = power >= 0.55f;
             float serveApexT = serveUsesClearArc ? 0.7f : 0.5f;
-            const float opponentContactProgress = 0.86f;
+            float opponentContactProgress = serveUsesClearArc
+                ? FindDescendingContactProgress(
+                    serveStart,
+                    target,
+                    arcHeight,
+                    serveApexT,
+                    2.55f)
+                : 0.86f;
             Vector3 contactPoint = EvaluateArc(
                 serveStart,
                 target,
@@ -1365,6 +1382,20 @@ namespace VRBadminton.Gameplay
                 serveApexT);
             float opponentSide = contactPoint.x >= 0f ? 1f : -1f;
             Vector3 readyPosition = GetOpponentReadyPosition(contactPoint, opponentSide);
+            bool plannedBackhand = ShouldOpponentUseBackhand(contactPoint);
+            OpponentShotType plannedReturnShot = serveUsesClearArc
+                ? (Random.value < 0.5f
+                    ? OpponentShotType.Clear
+                    : OpponentShotType.Drop)
+                : OpponentShotType.Net;
+            bool plannedForehandNet =
+                !serveUsesClearArc &&
+                plannedReturnShot == OpponentShotType.Net &&
+                !plannedBackhand;
+            bool plannedBackhandNet =
+                !serveUsesClearArc &&
+                plannedReturnShot == OpponentShotType.Net &&
+                plannedBackhand;
 
             ShowLandingPrediction(serveStart, target, serveApexT, serveUsesClearArc);
 
@@ -1384,7 +1415,41 @@ namespace VRBadminton.Gameplay
                     yield break;
                 }
 
-                MoveOpponentTowards(readyPosition, contactPoint, opponentSide);
+                if (serveUsesClearArc)
+                {
+                    if (plannedBackhand)
+                    {
+                        UpdateOpponentBackhandClearPreparation(
+                            progress / opponentContactProgress,
+                            readyPosition,
+                            contactPoint);
+                    }
+                    else
+                    {
+                        UpdateOpponentForehandClearPreparation(
+                            progress / opponentContactProgress,
+                            readyPosition,
+                            contactPoint);
+                    }
+                }
+                else if (plannedForehandNet)
+                {
+                    UpdateOpponentForehandNetPreparation(
+                        progress / opponentContactProgress,
+                        readyPosition,
+                        contactPoint);
+                }
+                else if (plannedBackhandNet)
+                {
+                    UpdateOpponentBackhandNetPreparation(
+                        progress / opponentContactProgress,
+                        readyPosition,
+                        contactPoint);
+                }
+                else
+                {
+                    MoveOpponentTowards(readyPosition, contactPoint, opponentSide);
+                }
                 if (opponentStamina <= 0f)
                 {
                     break;
@@ -1420,7 +1485,7 @@ namespace VRBadminton.Gameplay
             }
             else
             {
-                OpponentShotType returnShot = ChooseOpponentShot(false, true);
+                OpponentShotType returnShot = plannedReturnShot;
                 if (!CanOpponentAfford(returnShot))
                 {
                     rallyWinner = 1;
@@ -1429,19 +1494,91 @@ namespace VRBadminton.Gameplay
                 }
 
                 SpendOpponentStamina(returnShot);
-                bool backhand = ShouldOpponentUseBackhand(contactPoint);
+                bool backhand = serveUsesClearArc
+                    ? plannedBackhand
+                    : ShouldOpponentUseBackhand(contactPoint);
+                Vector3 returnTarget = CreateOpponentReturnTarget(
+                    opponentSide,
+                    returnShot);
                 PrepareOpponentRacket(
                     contactPoint,
                     opponentSide,
                     backhand,
                     false);
+                bool forehandOverheadPrepared =
+                    serveUsesClearArc &&
+                    !plannedBackhand;
+                bool backhandOverheadPrepared =
+                    serveUsesClearArc &&
+                    plannedBackhand;
+                bool forehandNetPrepared = plannedForehandNet;
+                bool backhandNetPrepared = plannedBackhandNet;
+                if (forehandOverheadPrepared)
+                {
+                    Quaternion contactRotation = returnShot == OpponentShotType.Clear
+                        ? GetOpponentClearContactRotation(contactPoint, returnTarget)
+                        : Quaternion.Euler(0f, 180f, 0f);
+                    AlignOpponentRacketFace(
+                        contactPoint,
+                        contactRotation);
+                    opponentBody.localRotation = Quaternion.identity;
+                }
+                else if (backhandOverheadPrepared)
+                {
+                    Quaternion contactRotation = returnShot == OpponentShotType.Clear
+                        ? GetOpponentClearContactRotation(contactPoint, returnTarget)
+                        : Quaternion.Euler(0f, 0f, 0f);
+                    AlignOpponentRacketFace(
+                        contactPoint,
+                        contactRotation);
+                    opponentBody.localRotation = Quaternion.Euler(
+                        0f,
+                        -180f,
+                        0f);
+                }
+                else if (forehandNetPrepared)
+                {
+                    AlignOpponentRacketFace(
+                        contactPoint,
+                        GetOpponentForehandNetWaitingRotation());
+                    opponentBody.localRotation = Quaternion.Euler(
+                        8f,
+                        10f,
+                        -5f);
+                }
+                else if (backhandNetPrepared)
+                {
+                    AlignOpponentRacketFace(
+                        contactPoint,
+                        GetOpponentBackhandNetWaitingRotation());
+                    opponentBody.localRotation = Quaternion.Euler(
+                        8f,
+                        -45f,
+                        5f);
+                }
                 StartCoroutine(AnimateOpponentSwing(
                     opponentSide,
                     backhand,
                     returnShot,
-                    false));
+                    false,
+                    forehandOverheadPrepared,
+                    backhandOverheadPrepared,
+                    forehandNetPrepared,
+                    backhandNetPrepared));
+                if (returnShot == OpponentShotType.Clear)
+                {
+                    AlignOpponentRacketFace(
+                        contactPoint,
+                        GetOpponentClearContactRotation(
+                            contactPoint,
+                            returnTarget));
+                }
                 Vector3 racketContact = opponentRacketFace.position;
-                yield return OpponentReturn(racketContact, opponentSide, returnShot);
+                opponentReturningToCenter = true;
+                yield return OpponentReturn(
+                    racketContact,
+                    returnTarget,
+                    returnShot);
             }
 
             shuttleTrail.emitting = false;
@@ -1697,11 +1834,12 @@ namespace VRBadminton.Gameplay
 
         private IEnumerator ReturnShuttle(ShotType shot, Vector3 start)
         {
+            opponentReturningToCenter = false;
             currentFlightHitter = 1;
             netFaultTriggered = false;
             temporarySlowMotionArmed =
                 temporarySlowMotionEnabled &&
-                shot == ShotType.Clear;
+                shot != ShotType.Miss;
             Vector3 target;
             float duration;
             float arcHeight;
@@ -1710,7 +1848,10 @@ namespace VRBadminton.Gameplay
             switch (shot)
             {
                 case ShotType.Drop:
-                    target = new Vector3(Random.Range(-2.2f, 2.2f), 0.09f, 2.65f * CourtLengthScale);
+                    target = new Vector3(
+                        Random.Range(-2.2f, 2.2f),
+                        0.09f,
+                        Random.Range(1.55f, 2.15f) * CourtLengthScale);
                     duration = 1.1f;
                     arcHeight = 1.35f;
                     break;
@@ -1738,7 +1879,10 @@ namespace VRBadminton.Gameplay
                     arcHeight = 1.5f;
                     break;
                 default:
-                    target = new Vector3(Random.Range(-1.9f, 1.9f), 0.09f, 2.35f * CourtLengthScale);
+                    target = new Vector3(
+                        Random.Range(-1.9f, 1.9f),
+                        0.09f,
+                        Random.Range(1.45f, 1.95f) * CourtLengthScale);
                     duration = 1.05f;
                     arcHeight = 1.35f;
                     break;
@@ -1768,21 +1912,22 @@ namespace VRBadminton.Gameplay
             Vector3 opponentReadyPosition = GetOpponentReadyPosition(
                 opponentContactPoint,
                 opponentSide);
-            bool plannedForehandOverhead = false;
-            bool plannedOverheadBackhand = false;
-            OpponentShotType plannedOpponentShot = OpponentShotType.Net;
-            if (shot == ShotType.Clear)
-            {
-                plannedOpponentShot = ChooseOpponentShot(
-                    true,
+            OpponentShotType plannedOpponentShot = shot == ShotType.Drop
+                ? OpponentShotType.Net
+                : ChooseOpponentShot(
+                    shot == ShotType.Clear,
                     Mathf.Abs(opponentContactPoint.z) < 4f * CourtLengthScale);
-                plannedForehandOverhead =
-                    plannedOpponentShot == OpponentShotType.Clear ||
-                    (difficultyLevel == 0 &&
-                        plannedOpponentShot == OpponentShotType.Drop);
-                plannedOverheadBackhand =
-                    ShouldOpponentUseBackhand(opponentContactPoint);
-            }
+            bool plannedOverhead =
+                plannedOpponentShot == OpponentShotType.Clear ||
+                plannedOpponentShot == OpponentShotType.Drop;
+            bool plannedOverheadBackhand =
+                ShouldOpponentUseBackhand(opponentContactPoint);
+            bool plannedForehandNet =
+                plannedOpponentShot == OpponentShotType.Net &&
+                !plannedOverheadBackhand;
+            bool plannedBackhandNet =
+                plannedOpponentShot == OpponentShotType.Net &&
+                plannedOverheadBackhand;
 
             while (progress < opponentContactProgress)
             {
@@ -1799,9 +1944,33 @@ namespace VRBadminton.Gameplay
                     yield return ResolveNetFault();
                     yield break;
                 }
-                if (plannedForehandOverhead && !plannedOverheadBackhand)
+                if (plannedOverhead)
                 {
-                    UpdateOpponentForehandClearPreparation(
+                    if (plannedOverheadBackhand)
+                    {
+                        UpdateOpponentBackhandClearPreparation(
+                            progress / opponentContactProgress,
+                            opponentReadyPosition,
+                            opponentContactPoint);
+                    }
+                    else
+                    {
+                        UpdateOpponentForehandClearPreparation(
+                            progress / opponentContactProgress,
+                            opponentReadyPosition,
+                            opponentContactPoint);
+                    }
+                }
+                else if (plannedForehandNet)
+                {
+                    UpdateOpponentForehandNetPreparation(
+                        progress / opponentContactProgress,
+                        opponentReadyPosition,
+                        opponentContactPoint);
+                }
+                else if (plannedBackhandNet)
+                {
+                    UpdateOpponentBackhandNetPreparation(
                         progress / opponentContactProgress,
                         opponentReadyPosition,
                         opponentContactPoint);
@@ -1875,11 +2044,7 @@ namespace VRBadminton.Gameplay
                 yield break;
             }
 
-            OpponentShotType opponentShot = shot == ShotType.Clear
-                ? plannedOpponentShot
-                : ChooseOpponentShot(
-                    false,
-                    Mathf.Abs(previousPosition.z) < 4f * CourtLengthScale);
+            OpponentShotType opponentShot = plannedOpponentShot;
             if (!CanOpponentAfford(opponentShot))
             {
                 rallyWinner = 1;
@@ -1896,37 +2061,90 @@ namespace VRBadminton.Gameplay
 
             bool useBackhand = ShouldOpponentUseBackhand(opponentContactPoint);
             bool jumpSmash = opponentShot == OpponentShotType.Smash;
+            Vector3 opponentReturnTarget = CreateOpponentReturnTarget(
+                opponentSide,
+                opponentShot);
             PrepareOpponentRacket(
                 opponentContactPoint,
                 opponentSide,
                 useBackhand,
                 jumpSmash);
             bool forehandClearPrepared =
-                plannedForehandOverhead &&
+                plannedOverhead &&
                 !plannedOverheadBackhand;
+            bool backhandOverheadPrepared =
+                plannedOverhead &&
+                plannedOverheadBackhand;
+            bool forehandNetPrepared = plannedForehandNet;
+            bool backhandNetPrepared = plannedBackhandNet;
             if (forehandClearPrepared)
+            {
+                Quaternion contactRotation = opponentShot == OpponentShotType.Clear
+                    ? GetOpponentClearContactRotation(
+                        opponentContactPoint,
+                        opponentReturnTarget)
+                    : Quaternion.Euler(0f, 180f, 0f);
+                AlignOpponentRacketFace(
+                    opponentContactPoint,
+                    contactRotation);
+                opponentBody.localRotation = Quaternion.identity;
+            }
+            else if (backhandOverheadPrepared)
+            {
+                Quaternion contactRotation = opponentShot == OpponentShotType.Clear
+                    ? GetOpponentClearContactRotation(
+                        opponentContactPoint,
+                        opponentReturnTarget)
+                    : Quaternion.Euler(0f, 0f, 0f);
+                AlignOpponentRacketFace(
+                    opponentContactPoint,
+                    contactRotation);
+                opponentBody.localRotation = Quaternion.Euler(0f, -180f, 0f);
+            }
+            else if (forehandNetPrepared)
             {
                 AlignOpponentRacketFace(
                     opponentContactPoint,
-                    Quaternion.Euler(0f, 180f, 0f));
-                opponentBody.localRotation = Quaternion.identity;
+                    GetOpponentForehandNetWaitingRotation());
+                opponentBody.localRotation = Quaternion.Euler(8f, 10f, -5f);
+            }
+            else if (backhandNetPrepared)
+            {
+                AlignOpponentRacketFace(
+                    opponentContactPoint,
+                    GetOpponentBackhandNetWaitingRotation());
+                opponentBody.localRotation = Quaternion.Euler(8f, -45f, 5f);
             }
             StartCoroutine(AnimateOpponentSwing(
                 opponentSide,
                 useBackhand,
                 opponentShot,
                 shot == ShotType.Smash,
-                forehandClearPrepared));
+                forehandClearPrepared,
+                backhandOverheadPrepared,
+                forehandNetPrepared,
+                backhandNetPrepared));
+            if (opponentShot == OpponentShotType.Clear)
+            {
+                AlignOpponentRacketFace(
+                    opponentContactPoint,
+                    GetOpponentClearContactRotation(
+                        opponentContactPoint,
+                        opponentReturnTarget));
+            }
             Vector3 contactStart = opponentRacketFace.position;
-            yield return OpponentReturn(contactStart, opponentSide, opponentShot);
+            opponentReturningToCenter = true;
+            yield return OpponentReturn(
+                contactStart,
+                opponentReturnTarget,
+                opponentShot);
         }
 
         private IEnumerator OpponentReturn(
             Vector3 start,
-            float sourceSide,
+            Vector3 target,
             OpponentShotType shot)
         {
-            float targetDepth;
             float duration;
             float arcHeight;
             bool isSmash = shot == OpponentShotType.Smash;
@@ -1934,7 +2152,6 @@ namespace VRBadminton.Gameplay
             switch (shot)
             {
                 case OpponentShotType.Net:
-                    targetDepth = Random.Range(2.15f, 2.9f);
                     duration = 1.15f;
                     arcHeight = 1.35f;
                     SetTrailColors(
@@ -1942,7 +2159,6 @@ namespace VRBadminton.Gameplay
                         new Color(0.2f, 0.8f, 0.25f, 0f));
                     break;
                 case OpponentShotType.Drop:
-                    targetDepth = Random.Range(2.7f, 3.35f);
                     duration = 1.35f;
                     arcHeight = 1.65f;
                     SetTrailColors(
@@ -1950,7 +2166,6 @@ namespace VRBadminton.Gameplay
                         new Color(0.2f, 0.8f, 0.25f, 0f));
                     break;
                 case OpponentShotType.Smash:
-                    targetDepth = Random.Range(3.4f, 5.2f);
                     duration = 0.85f;
                     arcHeight = 0.32f;
                     SetTrailColors(
@@ -1958,7 +2173,6 @@ namespace VRBadminton.Gameplay
                         new Color(0.85f, 0.02f, 0.02f, 0f));
                     break;
                 default:
-                    targetDepth = Random.Range(5.98f, 6.58f);
                     duration = shot == OpponentShotType.Lift ? 2.4f : 2.25f;
                     arcHeight = shot == OpponentShotType.Lift ? 5.25f : 4.85f;
                     SetTrailColors(
@@ -1967,20 +2181,60 @@ namespace VRBadminton.Gameplay
                     break;
             }
 
-            Vector3 target = new Vector3(
+            yield return PlayIncomingShuttle(start, target, duration, arcHeight, isSmash);
+        }
+
+        private static Vector3 CreateOpponentReturnTarget(
+            float sourceSide,
+            OpponentShotType shot)
+        {
+            float targetDepth;
+            switch (shot)
+            {
+                case OpponentShotType.Net:
+                    targetDepth = Random.Range(1.45f, 1.95f);
+                    break;
+                case OpponentShotType.Drop:
+                    targetDepth = Random.Range(1.75f, 2.25f);
+                    break;
+                case OpponentShotType.Smash:
+                    targetDepth = Random.Range(3.4f, 5.2f);
+                    break;
+                default:
+                    targetDepth = Random.Range(5.98f, 6.58f);
+                    break;
+            }
+
+            return new Vector3(
                 -sourceSide * Random.Range(0.85f, 2.45f),
                 0.09f,
                 -targetDepth * CourtLengthScale);
+        }
 
-            yield return PlayIncomingShuttle(start, target, duration, arcHeight, isSmash);
+        private Quaternion GetOpponentClearContactRotation(
+            Vector3 contactPoint,
+            Vector3 target)
+        {
+            Vector3 worldDirection = target - contactPoint;
+            worldDirection.y = 0f;
+            if (worldDirection.sqrMagnitude < 0.0001f)
+            {
+                return Quaternion.Euler(0f, 180f, 0f);
+            }
+
+            Vector3 localDirection = opponentPlayer.InverseTransformDirection(
+                worldDirection.normalized);
+            float yaw = Mathf.Atan2(localDirection.x, localDirection.z) *
+                Mathf.Rad2Deg;
+            return Quaternion.Euler(0f, yaw, 0f);
         }
 
         private OpponentShotType ChooseOpponentShot(bool canSmash, bool fromFrontCourt)
         {
             if (difficultyLevel == 0)
             {
-                return fromFrontCourt
-                    ? OpponentShotType.Net
+                return Random.value < 0.5f
+                    ? OpponentShotType.Clear
                     : OpponentShotType.Drop;
             }
 
@@ -2071,6 +2325,7 @@ namespace VRBadminton.Gameplay
 
         private IEnumerator AnimateOpponentHit(Vector3 contactPoint, float sourceSide)
         {
+            opponentReturningToCenter = false;
             Vector3 readyPosition = GetOpponentReadyPosition(contactPoint, sourceSide);
             while (OpponentDistanceTo(readyPosition) > opponentReachTolerance)
             {
@@ -2097,26 +2352,51 @@ namespace VRBadminton.Gameplay
             bool backhand,
             OpponentShotType shot,
             bool receivingSmash,
-            bool forehandClearPrepared = false)
+            bool forehandClearPrepared = false,
+            bool backhandOverheadPrepared = false,
+            bool forehandNetPrepared = false,
+            bool backhandNetPrepared = false)
         {
             OpponentSwingStyle style = GetOpponentSwingStyle(
                 shot,
                 backhand,
                 receivingSmash);
+            SetOpponentRacketFaceReversed(
+                style == OpponentSwingStyle.ForehandNet);
             if (style == OpponentSwingStyle.ForehandOverhead)
             {
                 yield return AnimateOpponentForehandClear(forehandClearPrepared);
                 yield break;
             }
+            if (style == OpponentSwingStyle.BackhandOverhead)
+            {
+                yield return AnimateOpponentBackhandClear(backhandOverheadPrepared);
+                yield break;
+            }
+            if (style == OpponentSwingStyle.BackhandDrop)
+            {
+                yield return AnimateOpponentBackhandDrop(backhandOverheadPrepared);
+                yield break;
+            }
+            if (style == OpponentSwingStyle.ForehandNet)
+            {
+                yield return AnimateOpponentForehandNet(forehandNetPrepared);
+                yield break;
+            }
+            if (style == OpponentSwingStyle.BackhandNet)
+            {
+                yield return AnimateOpponentBackhandNet(backhandNetPrepared);
+                yield break;
+            }
 
             float handSide = backhand ? 1f : -1f;
-            Quaternion bodyNeutral = Quaternion.Euler(0f, -10f, 2f);
+            Quaternion bodyNeutral = Quaternion.identity;
             Quaternion bodyTurned = Quaternion.Euler(
                 0f,
                 backhand ? 145f : 24f,
                 backhand ? -10f : 5f);
-            Vector3 neutralPosition = new Vector3(-0.72f, 0.72f, -0.02f);
-            Quaternion neutralRotation = Quaternion.Euler(18f, 180f, 8f);
+            Vector3 neutralPosition = GetOpponentReadyRacketPosition();
+            Quaternion neutralRotation = GetOpponentReadyRacketRotation();
 
             Vector3 preparationPosition;
             Vector3 contactPosition;
@@ -2265,7 +2545,9 @@ namespace VRBadminton.Gameplay
 
             if (shot == OpponentShotType.Net)
             {
-                return OpponentSwingStyle.Net;
+                return backhand
+                    ? OpponentSwingStyle.BackhandNet
+                    : OpponentSwingStyle.ForehandNet;
             }
 
             if (shot == OpponentShotType.Lift)
@@ -2275,9 +2557,11 @@ namespace VRBadminton.Gameplay
 
             if (shot == OpponentShotType.Drop && !backhand)
             {
-                return difficultyLevel == 0
-                    ? OpponentSwingStyle.ForehandOverhead
-                    : OpponentSwingStyle.ForehandDrop;
+                return OpponentSwingStyle.ForehandOverhead;
+            }
+            if (shot == OpponentShotType.Drop && backhand)
+            {
+                return OpponentSwingStyle.BackhandDrop;
             }
 
             return backhand
@@ -2293,9 +2577,9 @@ namespace VRBadminton.Gameplay
             {
                 // 1. Ready: racket upright, weight centered.
                 yield return AnimateOpponentPose(
-                    new Vector3(handSide * 0.78f, 0.9f, -0.04f),
-                    Quaternion.Euler(8f, 180f, 10f),
-                    Quaternion.Euler(0f, -8f, 1f),
+                    GetOpponentReadyRacketPosition(),
+                    GetOpponentReadyRacketRotation(),
+                    Quaternion.identity,
                     0.1f,
                     false,
                     0f);
@@ -2351,10 +2635,225 @@ namespace VRBadminton.Gameplay
 
             // 7. Recover balance and return to the central ready position.
             yield return AnimateOpponentPose(
-                new Vector3(-0.72f, 0.72f, -0.02f),
-                Quaternion.Euler(18f, 180f, 8f),
-                Quaternion.Euler(0f, -10f, 2f),
+                GetOpponentReadyRacketPosition(),
+                GetOpponentReadyRacketRotation(),
+                Quaternion.identity,
                 0.22f,
+                false,
+                0f);
+        }
+
+        private IEnumerator AnimateOpponentBackhandClear(bool preparationComplete)
+        {
+            if (!preparationComplete)
+            {
+                // 1. Face forward with the racket carried in front.
+                yield return AnimateOpponentPose(
+                    GetOpponentReadyRacketPosition(),
+                    GetOpponentReadyRacketRotation(),
+                    Quaternion.identity,
+                    0.1f,
+                    false,
+                    0f);
+
+                // 2. Turn toward the body's left and lift the elbow.
+                yield return AnimateOpponentPose(
+                    new Vector3(-0.28f, 1.02f, 0.08f),
+                    Quaternion.Euler(18f, 96f, 72f),
+                    Quaternion.Euler(-4f, -72f, -5f),
+                    0.14f,
+                    false,
+                    0f);
+
+                // 3. Continue to a back-facing stance and draw behind the head.
+                yield return AnimateOpponentPose(
+                    new Vector3(0.34f, 1.08f, 0.48f),
+                    Quaternion.Euler(8f, 88f, 96f),
+                    Quaternion.Euler(-7f, -148f, -8f),
+                    0.18f,
+                    false,
+                    0f);
+
+                // 4. Lead with the elbow and externally rotate into contact.
+                yield return AnimateOpponentPose(
+                    new Vector3(0.62f, 1.5f, 0.06f),
+                    Quaternion.Euler(0f, 0f, 0f),
+                    Quaternion.Euler(0f, -180f, 0f),
+                    0.16f,
+                    false,
+                    0f);
+            }
+
+            // 5. The body remains back-facing at contact, then the racket releases.
+            yield return AnimateOpponentPose(
+                new Vector3(0.34f, 1.02f, -0.34f),
+                Quaternion.Euler(106f, 180f, -18f),
+                Quaternion.Euler(5f, -142f, -6f),
+                0.18f,
+                false,
+                0f);
+
+            // 6. Turn back to the forward ready position.
+            yield return AnimateOpponentPose(
+                GetOpponentReadyRacketPosition(),
+                GetOpponentReadyRacketRotation(),
+                Quaternion.identity,
+                0.3f,
+                false,
+                0f);
+            SetOpponentRacketFaceReversed(false);
+        }
+
+        private IEnumerator AnimateOpponentBackhandDrop(bool preparationComplete)
+        {
+            if (!preparationComplete)
+            {
+                yield return AnimateOpponentPose(
+                    GetOpponentReadyRacketPosition(),
+                    GetOpponentReadyRacketRotation(),
+                    Quaternion.identity,
+                    0.1f,
+                    false,
+                    0f);
+                yield return AnimateOpponentPose(
+                    new Vector3(-0.28f, 1.02f, 0.08f),
+                    Quaternion.Euler(18f, 96f, 72f),
+                    Quaternion.Euler(-4f, -72f, -5f),
+                    0.14f,
+                    false,
+                    0f);
+                yield return AnimateOpponentPose(
+                    new Vector3(0.34f, 1.08f, 0.48f),
+                    Quaternion.Euler(8f, 88f, 96f),
+                    Quaternion.Euler(-7f, -148f, -8f),
+                    0.18f,
+                    false,
+                    0f);
+                yield return AnimateOpponentPose(
+                    new Vector3(0.62f, 1.5f, 0.06f),
+                    Quaternion.Euler(0f, 0f, 0f),
+                    Quaternion.Euler(0f, -180f, 0f),
+                    0.15f,
+                    false,
+                    0f);
+            }
+
+            // Soft slice: keep the same disguise, then shorten the release.
+            yield return AnimateOpponentPose(
+                new Vector3(0.5f, 1.28f, -0.2f),
+                Quaternion.Euler(38f, 0f, -10f),
+                Quaternion.Euler(2f, -166f, -3f),
+                0.13f,
+                false,
+                0f);
+            yield return AnimateOpponentPose(
+                new Vector3(0.3f, 1.04f, -0.3f),
+                Quaternion.Euler(64f, 0f, -14f),
+                Quaternion.Euler(4f, -146f, -5f),
+                0.12f,
+                false,
+                0f);
+            yield return AnimateOpponentPose(
+                GetOpponentReadyRacketPosition(),
+                GetOpponentReadyRacketRotation(),
+                Quaternion.identity,
+                0.3f,
+                false,
+                0f);
+            SetOpponentRacketFaceReversed(false);
+        }
+
+        private IEnumerator AnimateOpponentForehandNet(bool preparationComplete)
+        {
+            if (!preparationComplete)
+            {
+                yield return AnimateOpponentPose(
+                    GetOpponentReadyRacketPosition(),
+                    GetOpponentReadyRacketRotation(),
+                    Quaternion.identity,
+                    0.08f,
+                    false,
+                    0f);
+                yield return AnimateOpponentPose(
+                    new Vector3(-0.96f, 0.5f, -0.42f),
+                    GetOpponentForehandNetWaitingRotation(),
+                    Quaternion.Euler(7f, 8f, -4f),
+                    0.22f,
+                    false,
+                    0f);
+            }
+
+            Vector3 waitingPosition = opponentRacket.localPosition;
+
+            // Settle slightly lower on contact without pulling toward the body.
+            yield return AnimateOpponentPose(
+                waitingPosition + new Vector3(0f, -0.055f, 0f),
+                Quaternion.Euler(104f, 180f, -3f),
+                Quaternion.Euler(7f, 8f, -4f),
+                0.12f,
+                false,
+                0f);
+
+            // Rebound softly toward a nearly level, still slightly downward face.
+            yield return AnimateOpponentPose(
+                waitingPosition + new Vector3(0f, -0.015f, -0.025f),
+                Quaternion.Euler(96f, 180f, -2f),
+                Quaternion.Euler(7f, 8f, -4f),
+                0.16f,
+                false,
+                0f);
+
+            // Only after the shuttle has left the face does the racket recover.
+            yield return AnimateOpponentPose(
+                GetOpponentReadyRacketPosition(),
+                GetOpponentReadyRacketRotation(),
+                Quaternion.identity,
+                0.3f,
+                false,
+                0f);
+            SetOpponentRacketFaceReversed(false);
+        }
+
+        private IEnumerator AnimateOpponentBackhandNet(bool preparationComplete)
+        {
+            if (!preparationComplete)
+            {
+                yield return AnimateOpponentPose(
+                    GetOpponentReadyRacketPosition(),
+                    GetOpponentReadyRacketRotation(),
+                    Quaternion.identity,
+                    0.08f,
+                    false,
+                    0f);
+                yield return AnimateOpponentPose(
+                    new Vector3(0.96f, 0.5f, -0.62f),
+                    GetOpponentBackhandNetWaitingRotation(),
+                    Quaternion.Euler(7f, -45f, 5f),
+                    0.22f,
+                    false,
+                    0f);
+            }
+
+            Vector3 waitingPosition = opponentRacket.localPosition;
+            yield return AnimateOpponentPose(
+                waitingPosition + new Vector3(0f, -0.055f, 0f),
+                Quaternion.Euler(104f, 180f, -3f),
+                Quaternion.Euler(7f, -45f, 5f),
+                0.12f,
+                false,
+                0f);
+            yield return AnimateOpponentPose(
+                waitingPosition + new Vector3(0f, -0.015f, -0.025f),
+                Quaternion.Euler(96f, 180f, -2f),
+                Quaternion.Euler(7f, -45f, 5f),
+                0.16f,
+                false,
+                0f);
+            yield return AnimateOpponentPose(
+                GetOpponentReadyRacketPosition(),
+                GetOpponentReadyRacketRotation(),
+                Quaternion.identity,
+                0.3f,
                 false,
                 0f);
         }
@@ -2405,10 +2904,16 @@ namespace VRBadminton.Gameplay
         {
             bool backhand = ShouldOpponentUseBackhand(contactPoint);
             float handSide = backhand ? 1f : -1f;
+            float readyZ = contactPoint.z + 0.12f;
+            if (contactPoint.z < opponentFrontCourtReadyDepth * CourtLengthScale)
+            {
+                readyZ = opponentFrontCourtReadyDepth * CourtLengthScale;
+            }
+
             return new Vector3(
                 contactPoint.x - handSide * 0.72f,
                 0.55f,
-                contactPoint.z + 0.12f);
+                readyZ);
         }
 
         private void MoveOpponentTowards(
@@ -2439,6 +2944,36 @@ namespace VRBadminton.Gameplay
                 8f * Time.deltaTime);
         }
 
+        private void UpdateOpponentReturnToCenter()
+        {
+            if (!opponentReturningToCenter ||
+                opponentStamina <= 0f ||
+                opponentPlayer == null)
+            {
+                return;
+            }
+
+            Vector3 center = new Vector3(
+                0f,
+                opponentPlayer.position.y,
+                3.65f * CourtLengthScale);
+            Vector3 previousPosition = opponentPlayer.position;
+            opponentPlayer.position = Vector3.MoveTowards(
+                opponentPlayer.position,
+                center,
+                opponentRecoverySpeed * Time.deltaTime);
+            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
+
+            Vector2 currentGround = new Vector2(
+                opponentPlayer.position.x,
+                opponentPlayer.position.z);
+            Vector2 centerGround = new Vector2(center.x, center.z);
+            if (Vector2.Distance(currentGround, centerGround) <= 0.04f)
+            {
+                opponentReturningToCenter = false;
+            }
+        }
+
         private void UpdateOpponentForehandClearPreparation(
             float approachProgress,
             Vector3 readyPosition,
@@ -2456,9 +2991,9 @@ namespace VRBadminton.Gameplay
             SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
 
             approachProgress = Mathf.Clamp01(approachProgress);
-            Vector3 readyRacketPosition = new Vector3(-0.78f, 0.9f, -0.04f);
-            Quaternion readyRacketRotation = Quaternion.Euler(8f, 180f, 10f);
-            Quaternion readyBodyRotation = Quaternion.Euler(0f, 0f, 0f);
+            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
+            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
+            Quaternion readyBodyRotation = Quaternion.identity;
 
             Vector3 sideRacketPosition = new Vector3(-0.5f, 1.2f, 0.18f);
             Quaternion sideRacketRotation = Quaternion.Euler(-18f, 180f, 32f);
@@ -2530,6 +3065,206 @@ namespace VRBadminton.Gameplay
             }
         }
 
+        private void UpdateOpponentBackhandClearPreparation(
+            float approachProgress,
+            Vector3 readyPosition,
+            Vector3 contactPoint)
+        {
+            Vector3 previousPosition = opponentPlayer.position;
+            Vector3 groundedTarget = new Vector3(
+                readyPosition.x,
+                0.55f,
+                readyPosition.z);
+            opponentPlayer.position = Vector3.MoveTowards(
+                opponentPlayer.position,
+                groundedTarget,
+                opponentMoveSpeed * Time.deltaTime);
+            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
+
+            approachProgress = Mathf.Clamp01(approachProgress);
+            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
+            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
+            Quaternion readyBodyRotation = Quaternion.identity;
+
+            Vector3 turnRacketPosition = new Vector3(-0.28f, 1.02f, 0.08f);
+            Quaternion turnRacketRotation = Quaternion.Euler(18f, 96f, 72f);
+            Quaternion turnBodyRotation = Quaternion.Euler(-4f, -72f, -5f);
+
+            Vector3 drawRacketPosition = new Vector3(0.34f, 1.08f, 0.48f);
+            Quaternion drawRacketRotation = Quaternion.Euler(8f, 88f, 96f);
+            Quaternion drawBodyRotation = Quaternion.Euler(-7f, -148f, -8f);
+
+            if (approachProgress < 0.34f)
+            {
+                float t = Mathf.SmoothStep(0f, 1f, approachProgress / 0.34f);
+                opponentRacket.localPosition = Vector3.Lerp(
+                    readyRacketPosition,
+                    turnRacketPosition,
+                    t);
+                opponentRacket.localRotation = Quaternion.Slerp(
+                    readyRacketRotation,
+                    turnRacketRotation,
+                    t);
+                opponentBody.localRotation = Quaternion.Slerp(
+                    readyBodyRotation,
+                    turnBodyRotation,
+                    t);
+            }
+            else
+            {
+                float t = Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    (approachProgress - 0.34f) / 0.66f);
+                opponentRacket.localPosition = Vector3.Lerp(
+                    turnRacketPosition,
+                    drawRacketPosition,
+                    t);
+                opponentRacket.localRotation = Quaternion.Slerp(
+                    turnRacketRotation,
+                    drawRacketRotation,
+                    t);
+                opponentBody.localRotation = Quaternion.Slerp(
+                    turnBodyRotation,
+                    drawBodyRotation,
+                    t);
+            }
+
+            if (approachProgress > 0.9f)
+            {
+                Quaternion contactRotation = Quaternion.Euler(0f, 0f, 0f);
+                float t = Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    (approachProgress - 0.9f) / 0.1f);
+                Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
+                Vector3 contactPosition =
+                    localContact -
+                    contactRotation * opponentRacketFace.localPosition;
+                opponentRacket.localPosition = Vector3.Lerp(
+                    opponentRacket.localPosition,
+                    contactPosition,
+                    t);
+                opponentRacket.localRotation = Quaternion.Slerp(
+                    opponentRacket.localRotation,
+                    contactRotation,
+                    t);
+                opponentBody.localRotation = Quaternion.Slerp(
+                    drawBodyRotation,
+                    Quaternion.Euler(0f, -180f, 0f),
+                    t);
+            }
+        }
+
+        private void UpdateOpponentForehandNetPreparation(
+            float approachProgress,
+            Vector3 readyPosition,
+            Vector3 contactPoint)
+        {
+            Vector3 previousPosition = opponentPlayer.position;
+            Vector3 groundedTarget = new Vector3(
+                readyPosition.x,
+                0.55f,
+                readyPosition.z);
+            opponentPlayer.position = Vector3.MoveTowards(
+                opponentPlayer.position,
+                groundedTarget,
+                opponentMoveSpeed * Time.deltaTime);
+            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
+
+            approachProgress = Mathf.Clamp01(approachProgress);
+            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
+            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
+            Quaternion loweredBody = Quaternion.Euler(7f, 8f, -4f);
+            Quaternion waitingRotation = GetOpponentForehandNetWaitingRotation();
+            SetOpponentRacketFaceReversed(true);
+            Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
+            Vector3 waitingPosition =
+                localContact -
+                waitingRotation * opponentRacketFace.localPosition;
+
+            float prepareT = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.08f, 0.55f, approachProgress));
+            if (approachProgress < 0.55f)
+            {
+                opponentRacket.localPosition = Vector3.Lerp(
+                    readyRacketPosition,
+                    waitingPosition,
+                    prepareT);
+                opponentRacket.localRotation = Quaternion.Slerp(
+                    readyRacketRotation,
+                    waitingRotation,
+                    prepareT);
+                opponentBody.localRotation = Quaternion.Slerp(
+                    Quaternion.identity,
+                    loweredBody,
+                    prepareT);
+            }
+            else
+            {
+                // Hold the face on the predicted path until the shuttle arrives.
+                opponentRacket.localPosition = waitingPosition;
+                opponentRacket.localRotation = waitingRotation;
+                opponentBody.localRotation = loweredBody;
+            }
+        }
+
+        private void UpdateOpponentBackhandNetPreparation(
+            float approachProgress,
+            Vector3 readyPosition,
+            Vector3 contactPoint)
+        {
+            Vector3 previousPosition = opponentPlayer.position;
+            Vector3 groundedTarget = new Vector3(
+                readyPosition.x,
+                0.55f,
+                readyPosition.z);
+            opponentPlayer.position = Vector3.MoveTowards(
+                opponentPlayer.position,
+                groundedTarget,
+                opponentMoveSpeed * Time.deltaTime);
+            SpendOpponentRunStamina(previousPosition, opponentPlayer.position);
+
+            approachProgress = Mathf.Clamp01(approachProgress);
+            Vector3 readyRacketPosition = GetOpponentReadyRacketPosition();
+            Quaternion readyRacketRotation = GetOpponentReadyRacketRotation();
+            Quaternion loweredBody = Quaternion.Euler(7f, -45f, 5f);
+            Quaternion waitingRotation = GetOpponentBackhandNetWaitingRotation();
+            SetOpponentRacketFaceReversed(false);
+            Vector3 localContact = opponentPlayer.InverseTransformPoint(contactPoint);
+            Vector3 waitingPosition =
+                localContact -
+                waitingRotation * opponentRacketFace.localPosition;
+
+            float prepareT = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.08f, 0.55f, approachProgress));
+            if (approachProgress < 0.55f)
+            {
+                opponentRacket.localPosition = Vector3.Lerp(
+                    readyRacketPosition,
+                    waitingPosition,
+                    prepareT);
+                opponentRacket.localRotation = Quaternion.Slerp(
+                    readyRacketRotation,
+                    waitingRotation,
+                    prepareT);
+                opponentBody.localRotation = Quaternion.Slerp(
+                    Quaternion.identity,
+                    loweredBody,
+                    prepareT);
+            }
+            else
+            {
+                opponentRacket.localPosition = waitingPosition;
+                opponentRacket.localRotation = waitingRotation;
+                opponentBody.localRotation = loweredBody;
+            }
+        }
+
         private void AlignOpponentRacketFace(
             Vector3 contactPoint,
             Quaternion racketRotation)
@@ -2539,6 +3274,33 @@ namespace VRBadminton.Gameplay
             opponentRacket.localPosition =
                 localContact -
                 racketRotation * opponentRacketFace.localPosition;
+        }
+
+        private static Vector3 GetOpponentReadyRacketPosition()
+        {
+            return new Vector3(-0.52f, 0.308f, -0.32f);
+        }
+
+        private static Quaternion GetOpponentReadyRacketRotation()
+        {
+            return Quaternion.Euler(18.021f, 98.821f, -53.36f);
+        }
+
+        private static Quaternion GetOpponentForehandNetWaitingRotation()
+        {
+            return Quaternion.Euler(100f, 180f, -4f);
+        }
+
+        private static Quaternion GetOpponentBackhandNetWaitingRotation()
+        {
+            return Quaternion.Euler(100f, 180f, -4f);
+        }
+
+        private void SetOpponentRacketFaceReversed(bool reversed)
+        {
+            opponentRacketFace.localRotation = reversed
+                ? Quaternion.Euler(0f, 180f, 0f)
+                : Quaternion.identity;
         }
 
         private float OpponentDistanceTo(Vector3 readyPosition)
@@ -2552,11 +3314,8 @@ namespace VRBadminton.Gameplay
 
         private bool ShouldOpponentUseBackhand(Vector3 contactPoint)
         {
-            if (difficultyLevel == 0)
-            {
-                return false;
-            }
-
+            // The opponent faces -Z: world -X is its right (forehand) side,
+            // while world +X is its left (backhand) side.
             return contactPoint.x > opponentPlayer.position.x;
         }
 
@@ -2565,6 +3324,7 @@ namespace VRBadminton.Gameplay
             float sourceSide,
             bool backhand)
         {
+            SetOpponentRacketFaceReversed(false);
             float handSide = backhand ? 1f : -1f;
             float desiredHeight = Mathf.Clamp(
                 contactPoint.y - opponentPlayer.position.y - 1.35f,
@@ -2851,8 +3611,8 @@ namespace VRBadminton.Gameplay
         {
             GameObject root = new GameObject("Opponent Pixel Racket");
             root.transform.SetParent(playerRoot, false);
-            root.transform.localPosition = new Vector3(-0.72f, 0.55f, -0.02f);
-            root.transform.localRotation = Quaternion.Euler(18f, 180f, 0f);
+            root.transform.localPosition = GetOpponentReadyRacketPosition();
+            root.transform.localRotation = GetOpponentReadyRacketRotation();
 
             CreateBlock("Grip", root.transform, new Vector3(0f, 0.275f, 0f),
                 new Vector3(0.14f, 0.55f, 0.14f), racketDark);
