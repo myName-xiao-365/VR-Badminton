@@ -116,6 +116,8 @@ namespace VRBadminton.App
         [SerializeField] private bool showHitDebug;
         // Enable only when tuning sensor-mode hit detection; logs are intentionally off for Player baselines.
         [SerializeField] private bool logSensorHitDebug;
+        [SerializeField] private bool writeSensorHitLogFile = true;
+        [SerializeField] private string sensorHitLogDirectory = "Logs/SensorHit";
 
         [Header("Camera View")]
         [SerializeField] private bool useSwitchStyleCamera = true;
@@ -239,6 +241,9 @@ namespace VRBadminton.App
         private float pendingSwingStartedAt;
         private RacketHitResult lastHitResult;
         private int sensorHitLogSequence;
+        private string sensorHitLogPath;
+        private bool sensorHitLogPathReady;
+        private bool sensorHitLogFileFailed;
         private Camera gameplayCamera;
         private const int SwitchCameraPresetVersion = 10;
         private float playerServeSide = 1f;
@@ -369,6 +374,9 @@ namespace VRBadminton.App
                 if (inputSnapshot.OpponentServeReady || spacePressed)
                 {
                     opponentServeReady = true;
+                    LogSensorHitDebug(
+                        "opponent_serve_ready",
+                        $"viaSensor={B(inputSnapshot.OpponentServeReady)}|viaSpace={B(spacePressed)}");
                 }
             }
             else

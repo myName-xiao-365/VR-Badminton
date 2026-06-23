@@ -1,6 +1,9 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Text;
 using Unity.Profiling;
 using UnityEngine;
 using VRBadminton.Gameplay;
@@ -36,6 +39,12 @@ namespace VRBadminton.App
             inputSnapshot = activeInputSource?.Snapshot ?? BadmintonInputSnapshot.Default();
             hasLastSensorVirtualZ = false;
             inputSourceStarted = true;
+            if (mode == BadmintonInputMode.Sensor && screenState == ScreenState.Playing)
+            {
+                LogSensorHitDebug(
+                    "sensor_mode_active",
+                    $"phonePort={sensorPhonePort}|depthScale={F(sensorDepthScale)}|backDepthBoost={F(sensorBackcourtDepthBoost)}");
+            }
         }
 
         private Vector3 GroundPositionFromSensor(BadmintonPlayerFrame player)
@@ -531,18 +540,126 @@ namespace VRBadminton.App
             return playerGroundPosition.x;
         }
 
-        // Pipe-delimited logs are easier to grep and compare across rallies in Editor.log.
+        private void StartSensorHitLogSession(string eventName)
+        {
+            if (inputMode != BadmintonInputMode.Sensor)
+            {
+                return;
+            }
+
+            sensorHitLogSequence = 0;
+            sensorHitLogPath = string.Empty;
+            sensorHitLogPathReady = false;
+            sensorHitLogFileFailed = false;
+
+            string fileDetail = string.Empty;
+            if (writeSensorHitLogFile && TryEnsureSensorHitLogFile(out string path))
+            {
+                fileDetail = $"logFile={LogToken(path)}|";
+            }
+
+            LogSensorHitDebug(
+                eventName,
+                $"{fileDetail}difficulty={difficultyLevel}|scoreTarget={scoreTarget}|scoreCap={scoreCap}");
+        }
+
+        // Pipe-delimited logs are easy to grep and import as key/value columns after a rally.
         private void LogSensorHitDebug(string eventName, string details = "")
         {
-            if (!logSensorHitDebug || inputMode != BadmintonInputMode.Sensor)
+            if (inputMode != BadmintonInputMode.Sensor ||
+                (!logSensorHitDebug && !writeSensorHitLogFile))
             {
                 return;
             }
 
             string suffix = string.IsNullOrEmpty(details) ? string.Empty : $"|{details}";
-            Debug.Log(
-                $"VRB_SENSOR_HIT|seq={++sensorHitLogSequence}|event={eventName}|" +
-                $"{SensorHitSnapshotFields()}{suffix}");
+            string line =
+                $"VRB_SENSOR_HIT|seq={++sensorHitLogSequence}|event={LogToken(eventName)}|" +
+                $"{SensorHitSnapshotFields()}{suffix}";
+
+            if (logSensorHitDebug)
+            {
+                Debug.Log(line);
+            }
+
+            if (writeSensorHitLogFile)
+            {
+                AppendSensorHitLogLine(line);
+            }
+        }
+
+        private void AppendSensorHitLogLine(string line)
+        {
+            if (!TryEnsureSensorHitLogFile(out string path))
+            {
+                return;
+            }
+
+            try
+            {
+                File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8);
+            }
+            catch (Exception exception)
+            {
+                if (!sensorHitLogFileFailed)
+                {
+                    Debug.LogWarning($"Failed to write sensor hit log '{path}': {exception.Message}");
+                }
+
+                sensorHitLogFileFailed = true;
+            }
+        }
+
+        private bool TryEnsureSensorHitLogFile(out string path)
+        {
+            path = sensorHitLogPath;
+            if (sensorHitLogFileFailed)
+            {
+                return false;
+            }
+
+            if (sensorHitLogPathReady && !string.IsNullOrEmpty(sensorHitLogPath))
+            {
+                path = sensorHitLogPath;
+                return true;
+            }
+
+            try
+            {
+                string rootPath = ProjectRootPath();
+                string directory = string.IsNullOrWhiteSpace(sensorHitLogDirectory)
+                    ? "Logs/SensorHit"
+                    : sensorHitLogDirectory;
+                string logDirectory = Path.IsPathRooted(directory)
+                    ? directory
+                    : Path.Combine(rootPath, directory);
+                Directory.CreateDirectory(logDirectory);
+
+                string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+                sensorHitLogPath = Path.Combine(logDirectory, $"sensor-hit-{stamp}.log");
+                sensorHitLogPathReady = true;
+                path = sensorHitLogPath;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                if (!sensorHitLogFileFailed)
+                {
+                    Debug.LogWarning($"Failed to create sensor hit log file: {exception.Message}");
+                }
+
+                sensorHitLogFileFailed = true;
+                path = string.Empty;
+                return false;
+            }
+        }
+
+        private static string ProjectRootPath()
+        {
+            DirectoryInfo assetsParent = Directory.GetParent(Application.dataPath);
+            return assetsParent != null
+                ? assetsParent.FullName
+                : Application.dataPath;
         }
 
         // Include both world-space and racket-local contact geometry so misses can be explained
@@ -554,6 +671,8 @@ namespace VRBadminton.App
             Vector3 racketRight = racketFace != null ? racketFace.right : Vector3.right;
             Vector3 racketUp = racketFace != null ? racketFace.up : Vector3.up;
             Vector3 shuttlePosition = shuttle != null ? shuttle.position : Vector3.zero;
+            bool landingVisible = landingMarker != null && landingMarker.gameObject.activeSelf;
+            Vector3 landingPosition = landingVisible ? landingMarker.position : Vector3.zero;
             Vector3 shuttleVelocity = shuttleHistory.Count > 0
                 ? shuttleHistory[shuttleHistory.Count - 1].Velocity
                 : Vector3.zero;
@@ -566,9 +685,22 @@ namespace VRBadminton.App
 
             return
                 $"time={F(Time.time)}" +
+                $"|screen={screenState}" +
+                $"|mode={gameMode}" +
+                $"|playerScore={playerScore}" +
+                $"|opponentScore={opponentScore}" +
+                $"|playerServing={B(playerServing)}" +
+                $"|awaitPlayerServe={B(awaitingPlayerServe)}" +
+                $"|awaitOpponentServe={B(awaitingOpponentServe)}" +
+                $"|opponentServeReady={B(opponentServeReady)}" +
+                $"|rallyWinner={rallyWinner}" +
+                $"|matchWinner={matchWinner}" +
+                $"|currentHitter={currentFlightHitter}" +
                 $"|playerStale={B(inputSnapshot.PlayerStale)}" +
                 $"|racketStale={B(inputSnapshot.RacketStale)}" +
                 $"|shuttleActive={B(shuttle != null && shuttle.gameObject.activeSelf)}" +
+                $"|shuttleIncoming={B(shuttleIncoming)}" +
+                $"|incomingHighClear={B(incomingHighClear)}" +
                 $"|swingPending={B(swingPending)}" +
                 $"|inputSwingUp={B(inputSnapshot.SwingUpward)}" +
                 $"|resolvedInputUp={B(resolvedInputUp)}" +
@@ -589,12 +721,23 @@ namespace VRBadminton.App
                 $"|pendingSpeed={F(pendingSwingSpeed)}" +
                 $"|faceAngle={F(currentFaceAngle)}" +
                 $"|rawEuler={V(inputSnapshot.Racket.RawEuler)}" +
+                $"|playerPos={V(playerGroundPosition)}" +
+                $"|sensorVirtualPos={V(inputSnapshot.Player.VirtualPosition)}" +
+                $"|sensorRightHand={V(inputSnapshot.Player.RightHand.Relative)}" +
+                $"|rightHandVisible={B(inputSnapshot.Player.RightHand.Visible)}" +
+                $"|jumpActive={B(jumpActive)}" +
+                $"|jumpOffset={F(jumpOffset)}" +
+                $"|opponentStamina={F(opponentStamina)}" +
                 $"|racketPos={V(racketPosition)}" +
                 $"|racketForward={V(racketForward)}" +
                 $"|racketRight={V(racketRight)}" +
                 $"|racketUp={V(racketUp)}" +
                 $"|shuttlePos={V(shuttlePosition)}" +
                 $"|shuttleVel={V(shuttleVelocity)}" +
+                $"|landingVisible={B(landingVisible)}" +
+                $"|landingPos={V(landingPosition)}" +
+                $"|predictedContact={B(hasPlayerContactPrediction)}" +
+                $"|predictedPoint={V(playerPredictedContactPoint)}" +
                 $"|toShuttle={V(toShuttle)}" +
                 $"|distance={F(toShuttle.magnitude)}" +
                 $"|plane={F(signedPlaneDistance)}" +
@@ -632,7 +775,12 @@ namespace VRBadminton.App
         {
             return string.IsNullOrEmpty(value)
                 ? "none"
-                : value.Replace(' ', '_');
+                : value
+                    .Replace(' ', '_')
+                    .Replace('\t', '_')
+                    .Replace('\r', '_')
+                    .Replace('\n', '_')
+                    .Replace('|', '/');
         }
 
         private static string B(bool value)

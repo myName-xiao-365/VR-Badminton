@@ -36,6 +36,9 @@ namespace VRBadminton.App
             float arcHeight = incomingClear
                 ? clearArcHeight
                 : opponentShot == OpponentShotType.Net ? 1.35f : dropShotArcHeight;
+            LogSensorHitDebug(
+                "incoming_plan",
+                $"opponentShot={opponentShot}|start={V(start)}|target={V(target)}|duration={F(duration)}|arcHeight={F(arcHeight)}|sourceSide={F(sourceSide)}");
 
             awaitingOpponentServe = true;
             opponentServeReady = false;
@@ -114,6 +117,9 @@ namespace VRBadminton.App
                 targetDepth * CourtLengthScale);
             float duration = Mathf.Lerp(1.5f, 1.9f, power);
             float arcHeight = Mathf.Lerp(1.55f, 4.35f, power);
+            LogSensorHitDebug(
+                "player_serve_plan",
+                $"power={F(power)}|start={V(start)}|target={V(target)}|duration={F(duration)}|arcHeight={F(arcHeight)}|serviceSide={F(serviceSide)}");
 
             SetTrailColors(
                 new Color(1f, 0.9f, 0.42f, 0.82f),
@@ -618,6 +624,9 @@ namespace VRBadminton.App
             bool plannedBackhandNet =
                 plannedOpponentShot == OpponentShotType.Net &&
                 plannedOverheadBackhand;
+            LogSensorHitDebug(
+                "player_return_plan",
+                $"shot={shot}|start={V(start)}|target={V(target)}|duration={F(duration)}|arcHeight={F(arcHeight)}|opponentContactT={F(opponentContactProgress)}|opponentContact={V(opponentContactPoint)}|opponentReady={V(opponentReadyPosition)}|plannedOpponentShot={plannedOpponentShot}|plannedBackhand={B(plannedOverheadBackhand)}");
 
             while (progress < opponentContactProgress)
             {
@@ -686,6 +695,9 @@ namespace VRBadminton.App
                 OpponentDistanceTo(opponentReadyPosition) <= opponentReachTolerance;
             if (!opponentReached)
             {
+                LogSensorHitDebug(
+                    "player_return_result",
+                    $"result=opponent_miss|shot={shot}|progress={F(progress)}|opponentContact={V(opponentContactPoint)}|opponentReady={V(opponentReadyPosition)}|opponentDistance={F(OpponentDistanceTo(opponentReadyPosition))}");
                 while (progress < 1f)
                 {
                     progress = Mathf.Min(1f, progress + Time.deltaTime / duration);
@@ -711,6 +723,9 @@ namespace VRBadminton.App
 
             if (shot == ShotType.Smash && Random.value > opponentSmashReceiveChance)
             {
+                LogSensorHitDebug(
+                    "player_return_result",
+                    $"result=smash_winner|shot={shot}|progress={F(progress)}|opponentContact={V(opponentContactPoint)}");
                 while (progress < 1f)
                 {
                     progress = Mathf.Min(1f, progress + Time.deltaTime / duration);
@@ -737,6 +752,9 @@ namespace VRBadminton.App
             OpponentShotType opponentShot = plannedOpponentShot;
             if (!CanOpponentAfford(opponentShot))
             {
+                LogSensorHitDebug(
+                    "player_return_result",
+                    $"result=opponent_stamina_empty|shot={shot}|plannedOpponentShot={opponentShot}|opponentStamina={F(opponentStamina)}");
                 rallyWinner = 1;
                 yield return new WaitForSeconds(0.45f);
                 yield break;
@@ -824,6 +842,9 @@ namespace VRBadminton.App
             }
             Vector3 contactStart = opponentRacketFace.position;
             opponentReturningToCenter = true;
+            LogSensorHitDebug(
+                "player_return_result",
+                $"result=opponent_return|shot={shot}|opponentShot={opponentShot}|opponentReturnStart={V(contactStart)}|opponentReturnTarget={V(opponentReturnTarget)}|useBackhand={B(useBackhand)}|jumpSmash={B(jumpSmash)}");
             yield return OpponentReturn(
                 contactStart,
                 opponentReturnTarget,
@@ -837,6 +858,9 @@ namespace VRBadminton.App
         {
             ShuttleOpponentReturnFlightPlan returnPlan =
                 shuttleReturnPlanner.CreateOpponentReturnFlight(shot);
+            LogSensorHitDebug(
+                "opponent_return_plan",
+                $"opponentShot={shot}|start={V(start)}|target={V(target)}|duration={F(returnPlan.Duration)}|arcHeight={F(returnPlan.ArcHeight)}|isSmash={B(returnPlan.IsSmash)}");
             SetTrailColors(
                 returnPlan.Trail.StartColor,
                 returnPlan.Trail.EndColor);

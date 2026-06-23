@@ -7,7 +7,9 @@
 ![Bb]uilds/.gitkeep
 ![Bb]uilds/README.md
 ![Bb]uilds/游戏操作指南与规则.md
-[Ll]ogs/
+[Ll]ogs/*
+![Ll]ogs/SensorHit/
+![Ll]ogs/SensorHit/**
 [Uu]ser[Ss]ettings/
 
 # Visual Studio / Rider / IDE files

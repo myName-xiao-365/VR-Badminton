@@ -23,6 +23,9 @@ namespace VRBadminton.App
 
                 rallyWinner = 0;
                 opponentStamina = opponentMaxStamina;
+                LogSensorHitDebug(
+                    "rally_begin",
+                    $"server={(playerServing ? "player" : "opponent")}|difficulty={difficultyLevel}");
 
                 if (playerServing)
                 {
@@ -40,6 +43,8 @@ namespace VRBadminton.App
                     Time.timeScale = 1f;
                 }
 
+                int previousPlayerScore = playerScore;
+                int previousOpponentScore = opponentScore;
                 MatchState state = new MatchState
                 {
                     PlayerScore = playerScore,
@@ -51,9 +56,13 @@ namespace VRBadminton.App
                 opponentScore = state.OpponentScore;
                 playerServing = state.PlayerServing;
                 matchWinner = state.MatchWinner;
+                LogSensorHitDebug(
+                    "rally_score",
+                    $"winner={rallyWinner}|prevScore={previousPlayerScore}-{previousOpponentScore}|nextScore={playerScore}-{opponentScore}|nextServer={(playerServing ? "player" : "opponent")}");
 
                 if (matchWinner != 0)
                 {
+                    LogSensorHitDebug("match_end", $"winner={matchWinner}");
                     matchOver = true;
                     yield break;
                 }
@@ -119,6 +128,7 @@ namespace VRBadminton.App
             matchWinner = 0;
             matchOver = false;
             ResetRallyVisuals();
+            StartSensorHitLogSession("match_begin");
             StartCoroutine(GameLoop());
         }
 
@@ -175,6 +185,7 @@ namespace VRBadminton.App
             playerServing = false;
             opponentStamina = opponentMaxStamina;
             ResetRallyVisuals();
+            StartSensorHitLogSession("match_restart");
             StartCoroutine(GameLoop());
         }
 
