@@ -8,6 +8,14 @@ namespace VRBadminton.Tests
     public sealed class BadmintonInputTests
     {
         [Test]
+        public void InputSnapshotDefaultClearsSwingPeakGameSpeed()
+        {
+            BadmintonInputSnapshot snapshot = BadmintonInputSnapshot.Default();
+
+            Assert.AreEqual(0f, snapshot.SwingPeakGameSpeed);
+        }
+
+        [Test]
         public void RacketFrameJsonParsesMatrixAndQuaternion()
         {
             const string json = "{" +

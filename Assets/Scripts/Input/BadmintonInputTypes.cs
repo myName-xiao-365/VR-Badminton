@@ -175,6 +175,7 @@ namespace VRBadminton.Input
         public bool HasSwingGesture;
         public bool SwingUpward;
         public float SwingGameSpeed;
+        public float SwingPeakGameSpeed;
         public float SwingStartAngle;
         public string Status;
         public string CameraStatus;
@@ -211,6 +212,7 @@ namespace VRBadminton.Input
                 HasSwingGesture = false,
                 SwingUpward = false,
                 SwingGameSpeed = 0f,
+                SwingPeakGameSpeed = 0f,
                 SwingStartAngle = 37.5f,
                 Status = "Input idle",
                 CameraStatus = "Camera idle",

@@ -89,9 +89,9 @@ namespace VRBadminton.App
         [SerializeField] private float clearDuration = 2.35f;
         [SerializeField] private float dropShotArcHeight = 1.65f;
         [SerializeField] private float clearArcHeight = 4.85f;
-        [SerializeField, Range(0.4f, 1f)] private float speedAfterNet = 0.68f;
-        [SerializeField, Range(0.4f, 1f)] private float opponentSmashSpeedBeforeNet = 0.7f;
-        [SerializeField, Range(0.1f, 0.8f)] private float opponentSmashSpeedAfterNet = 0.25f;
+        [SerializeField, Range(0.4f, 1f)] private float speedAfterNet = 1f;
+        [SerializeField, Range(0.4f, 1f)] private float opponentSmashSpeedBeforeNet = 1f;
+        [SerializeField, Range(0.1f, 1f)] private float opponentSmashSpeedAfterNet = 1f;
 
         [Header("Hit Assist")]
         [SerializeField] private float backcourtPositionInset = 0.45f;
@@ -159,6 +159,16 @@ namespace VRBadminton.App
         [SerializeField] private float upwardOutSpeed = 5600f;
         [SerializeField] private float minimumAngleTravel = 18f;
 
+        [Header("Sensor Return Intent")]
+        [SerializeField, Range(0.5f, 1.25f)]
+        private float sensorReturnPowerExponent = 1.05f;
+        [SerializeField, Range(0.5f, 1f)]
+        private float sensorAssistPowerRetention = 0.88f;
+        [SerializeField, Range(0.5f, 1f)]
+        private float sensorMagnetPowerRetention = 0.74f;
+        [SerializeField, Range(5f, 45f)]
+        private float sensorMaxAimYawDegrees = 30f;
+
         private Transform shuttle;
         private Transform landingMarker;
         private Transform playerPositionMarker;
@@ -194,6 +204,7 @@ namespace VRBadminton.App
         private bool swingPending;
         private bool swingUpward;
         private float pendingSwingSpeed;
+        private float pendingSwingPowerSpeed;
         private float pendingStartAngle;
         private float pendingSwingTime;
         private float smoothedMouseSpeed;
@@ -402,6 +413,7 @@ namespace VRBadminton.App
             UpdatePlayerPositionMarker();
             UpdateOpponentReturnToCenter();
             ReadInputSwing();
+            UpdatePendingSwingPower();
         }
 
         private void LateUpdate()

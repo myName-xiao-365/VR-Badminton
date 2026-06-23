@@ -63,6 +63,7 @@ namespace VRBadminton.Input
             snapshot.SmashReceiveReady = UnityEngine.Input.GetKeyDown(KeyCode.Space);
             snapshot.HasSwingGesture = false;
             snapshot.Swing = BadmintonSwingSample.Default();
+            snapshot.SwingPeakGameSpeed = 0f;
 
             float horizontal = UnityEngine.Input.GetAxisRaw("Horizontal");
             float vertical = UnityEngine.Input.GetAxisRaw("Vertical");
@@ -174,6 +175,7 @@ namespace VRBadminton.Input
             snapshot.HasSwingGesture = true;
             snapshot.SwingUpward = upward;
             snapshot.SwingGameSpeed = speed;
+            snapshot.SwingPeakGameSpeed = speed;
             snapshot.SwingStartAngle = gestureStartAngle;
             snapshot.Swing = new BadmintonSwingSample
             {

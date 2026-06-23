@@ -153,6 +153,83 @@ namespace VRBadminton.Tests
             Assert.AreEqual(RacketResolvedShot.Drop, result.Shot);
         }
 
+        [Test]
+        public void HitResultCarriesBestCandidateWorldContactFrame()
+        {
+            RacketHitResolver resolver = new RacketHitResolver();
+            Vector3 bestNormal = new Vector3(0.18f, 0.24f, 0.95f).normalized;
+            Vector3 bestRight = Vector3.Cross(Vector3.up, bestNormal).normalized;
+            Vector3 bestUp = Vector3.Cross(bestNormal, bestRight).normalized;
+            Vector3 bestVelocity = new Vector3(1.2f, 2.4f, 8.6f);
+            Vector3 bestSwingDirection = bestVelocity.normalized;
+            List<RacketKinematicFrame> racket = new List<RacketKinematicFrame>
+            {
+                new RacketKinematicFrame
+                {
+                    Time = 0.98f,
+                    FaceCenter = Vector3.zero,
+                    FaceNormal = Vector3.forward,
+                    FaceRight = Vector3.right,
+                    FaceUp = Vector3.up,
+                    FaceVelocity = new Vector3(-3f, 1f, 3f),
+                    SwingDirection = new Vector3(-3f, 1f, 3f).normalized,
+                    SwingSpeed = 4.4f,
+                    FaceAngle = 70f,
+                    TrackingConfidence = 1f,
+                    SwingUpward = false
+                },
+                new RacketKinematicFrame
+                {
+                    Time = 1f,
+                    FaceCenter = Vector3.zero,
+                    FaceNormal = bestNormal,
+                    FaceRight = bestRight,
+                    FaceUp = bestUp,
+                    FaceVelocity = bestVelocity,
+                    SwingDirection = bestSwingDirection,
+                    SwingSpeed = bestVelocity.magnitude,
+                    FaceAngle = 70f,
+                    TrackingConfidence = 0.86f,
+                    SwingUpward = false
+                }
+            };
+            List<ShuttleKinematicFrame> shuttle = new List<ShuttleKinematicFrame>
+            {
+                new ShuttleKinematicFrame
+                {
+                    Time = 0.98f,
+                    Position = new Vector3(0.44f, 0f, 0.03f),
+                    Velocity = new Vector3(0f, 0f, -4f)
+                },
+                new ShuttleKinematicFrame
+                {
+                    Time = 1f,
+                    Position = bestNormal * 0.03f,
+                    Velocity = new Vector3(0f, 0f, -4f)
+                }
+            };
+
+            RacketHitResult result = resolver.Resolve(
+                racket,
+                shuttle,
+                Context(upward: false, incomingFrontCourt: false, speed: 3000f, faceAngle: 70f),
+                Settings());
+
+            Assert.IsTrue(result.Hit);
+            Assert.AreEqual(bestNormal.x, result.ContactFaceNormal.x, 0.001f);
+            Assert.AreEqual(bestNormal.y, result.ContactFaceNormal.y, 0.001f);
+            Assert.AreEqual(bestNormal.z, result.ContactFaceNormal.z, 0.001f);
+            Assert.AreEqual(bestRight.x, result.ContactFaceRight.x, 0.001f);
+            Assert.AreEqual(bestUp.y, result.ContactFaceUp.y, 0.001f);
+            Assert.AreEqual(bestVelocity.x, result.ContactFaceVelocity.x, 0.001f);
+            Assert.AreEqual(bestVelocity.z, result.ContactFaceVelocity.z, 0.001f);
+            Assert.AreEqual(bestSwingDirection.z, result.ContactSwingDirection.z, 0.001f);
+            Assert.AreEqual(0f, result.ContactLocalX, 0.001f);
+            Assert.AreEqual(0f, result.ContactLocalY, 0.001f);
+            Assert.AreEqual(0.03f, result.ContactPlaneDistance, 0.001f);
+            Assert.AreEqual(0.86f, result.ContactTrackingConfidence, 0.001f);
+        }
+
         private static RacketHitSettings Settings()
         {
             return RacketHitSettings.Default();

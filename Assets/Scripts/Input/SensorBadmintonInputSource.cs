@@ -145,6 +145,14 @@ namespace VRBadminton.Input
                 float faceAngle = racketStale ? snapshot.FaceAngle : BadmintonInputMath.FaceAngleFromRacket(latestRacket);
                 float face01 = Mathf.InverseLerp(-45f, 120f, faceAngle);
                 float gameSpeed = latestSwing.AngularSpeed * angularSpeedToGameSpeed;
+                float filteredPeakGameSpeed = latestSwing.PeakSpeed * angularSpeedToGameSpeed;
+                float rawGameSpeed = latestRacket.AngularSpeed * angularSpeedToGameSpeed;
+                float peakGameSpeed = racketStale
+                    ? 0f
+                    : Mathf.Max(
+                        SanitizeGameSpeed(gameSpeed),
+                        SanitizeGameSpeed(filteredPeakGameSpeed),
+                        SanitizeGameSpeed(rawGameSpeed));
                 bool swingReady = !racketStale && newPhoneFrame && latestSwing.Impact;
 
                 snapshot.Player = latestPlayer;
@@ -165,6 +173,7 @@ namespace VRBadminton.Input
                 // The phone demo's forward/back swing axis is therefore mirrored for gameplay classification.
                 snapshot.SwingUpward = latestSwing.Direction.y < 0f;
                 snapshot.SwingGameSpeed = gameSpeed;
+                snapshot.SwingPeakGameSpeed = peakGameSpeed;
                 snapshot.SwingStartAngle = faceAngle;
                 snapshot.SmashReceiveReady = false;
                 snapshot.JumpReady = jumpReady;
@@ -260,6 +269,13 @@ namespace VRBadminton.Input
             }
 
             return "Sensor input active";
+        }
+
+        private static float SanitizeGameSpeed(float value)
+        {
+            return float.IsNaN(value) || float.IsInfinity(value)
+                ? 0f
+                : Mathf.Max(0f, value);
         }
     }
 

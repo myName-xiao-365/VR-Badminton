@@ -108,6 +108,15 @@ namespace VRBadminton.Gameplay
         public bool SwingUpward;
         public float SwingSpeed;
         public float FaceAngle;
+        public Vector3 ContactFaceNormal;
+        public Vector3 ContactFaceRight;
+        public Vector3 ContactFaceUp;
+        public Vector3 ContactFaceVelocity;
+        public Vector3 ContactSwingDirection;
+        public float ContactLocalX;
+        public float ContactLocalY;
+        public float ContactPlaneDistance;
+        public float ContactTrackingConfidence;
         public string Reason;
 
         public static RacketHitResult Miss(string reason, bool consumeSwing)
@@ -327,7 +336,16 @@ namespace VRBadminton.Gameplay
                 MagnetUsed = magnetUsed,
                 SwingUpward = context.SwingUpward,
                 SwingSpeed = context.SwingSpeed,
-                FaceAngle = racketFrame.FaceAngle
+                FaceAngle = racketFrame.FaceAngle,
+                ContactFaceNormal = normal,
+                ContactFaceRight = right,
+                ContactFaceUp = up,
+                ContactFaceVelocity = racketFrame.FaceVelocity,
+                ContactSwingDirection = NormalizeOrFallback(racketFrame.SwingDirection, DefaultSwingDirection(context.SwingUpward)),
+                ContactLocalX = localX,
+                ContactLocalY = localY,
+                ContactPlaneDistance = signedPlaneDistance,
+                ContactTrackingConfidence = trackingConfidence
             };
             return true;
         }
@@ -564,6 +582,15 @@ namespace VRBadminton.Gameplay
                 SwingUpward = candidate.SwingUpward,
                 SwingSpeed = candidate.SwingSpeed,
                 FaceAngle = candidate.FaceAngle,
+                ContactFaceNormal = candidate.ContactFaceNormal,
+                ContactFaceRight = candidate.ContactFaceRight,
+                ContactFaceUp = candidate.ContactFaceUp,
+                ContactFaceVelocity = candidate.ContactFaceVelocity,
+                ContactSwingDirection = candidate.ContactSwingDirection,
+                ContactLocalX = candidate.ContactLocalX,
+                ContactLocalY = candidate.ContactLocalY,
+                ContactPlaneDistance = candidate.ContactPlaneDistance,
+                ContactTrackingConfidence = candidate.ContactTrackingConfidence,
                 Reason = reason
             };
         }
@@ -678,6 +705,15 @@ namespace VRBadminton.Gameplay
             public bool SwingUpward;
             public float SwingSpeed;
             public float FaceAngle;
+            public Vector3 ContactFaceNormal;
+            public Vector3 ContactFaceRight;
+            public Vector3 ContactFaceUp;
+            public Vector3 ContactFaceVelocity;
+            public Vector3 ContactSwingDirection;
+            public float ContactLocalX;
+            public float ContactLocalY;
+            public float ContactPlaneDistance;
+            public float ContactTrackingConfidence;
         }
     }
 }

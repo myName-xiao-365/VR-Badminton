@@ -154,6 +154,7 @@ namespace VRBadminton.App
                         "swing_expire",
                         $"pendingAge={F(pendingSwingStartedAt > 0f ? Time.time - pendingSwingStartedAt : 0f)}|{HitResultFields(lastHitResult)}");
                     swingPending = false;
+                    pendingSwingPowerSpeed = 0f;
                     pendingSwingStartedAt = 0f;
                 }
             }
@@ -339,13 +340,30 @@ namespace VRBadminton.App
             swingPending = true;
             swingUpward = resolvedSwingUpward;
             pendingSwingSpeed = speed;
+            pendingSwingPowerSpeed = inputMode == BadmintonInputMode.Sensor
+                ? Mathf.Max(inputSnapshot.SwingGameSpeed, inputSnapshot.SwingPeakGameSpeed)
+                : pendingSwingSpeed;
             pendingStartAngle = inputSnapshot.SwingStartAngle;
             pendingSwingTime = contactWindow;
             pendingSwingStartedAt = Time.time;
             swingCooldown = 0.22f;
             LogSensorHitDebug(
                 "swing_accept",
-                $"acceptedSpeed={F(speed)}|acceptedUp={B(resolvedSwingUpward)}|startAngle={F(inputSnapshot.SwingStartAngle)}");
+                $"acceptedSpeed={F(speed)}|acceptedPowerSpeed={F(pendingSwingPowerSpeed)}|acceptedUp={B(resolvedSwingUpward)}|startAngle={F(inputSnapshot.SwingStartAngle)}");
+        }
+
+        private void UpdatePendingSwingPower()
+        {
+            if (!swingPending ||
+                inputMode != BadmintonInputMode.Sensor ||
+                inputSnapshot.RacketStale)
+            {
+                return;
+            }
+
+            pendingSwingPowerSpeed = Mathf.Max(
+                pendingSwingPowerSpeed,
+                inputSnapshot.SwingPeakGameSpeed);
         }
 
         private void RecordRacketFrame()
@@ -417,6 +435,7 @@ namespace VRBadminton.App
             racketHistory.Clear();
             shuttleHistory.Clear();
             lastRecordedRacketTime = 0f;
+            pendingSwingPowerSpeed = 0f;
             pendingSwingStartedAt = 0f;
             lastHitResult = RacketHitResult.Miss("history cleared", false);
         }
@@ -718,7 +737,9 @@ namespace VRBadminton.App
                 $"|angularVel={V(inputSnapshot.Racket.AngularVelocity)}" +
                 $"|angularSpeed={F(inputSnapshot.Racket.AngularSpeed)}" +
                 $"|gameSpeed={F(inputSnapshot.SwingGameSpeed)}" +
+                $"|peakGameSpeed={F(inputSnapshot.SwingPeakGameSpeed)}" +
                 $"|pendingSpeed={F(pendingSwingSpeed)}" +
+                $"|pendingPowerSpeed={F(pendingSwingPowerSpeed)}" +
                 $"|faceAngle={F(currentFaceAngle)}" +
                 $"|rawEuler={V(inputSnapshot.Racket.RawEuler)}" +
                 $"|playerPos={V(playerGroundPosition)}" +
@@ -767,7 +788,16 @@ namespace VRBadminton.App
                 $"|resultSwingUp={B(result.SwingUpward)}" +
                 $"|resultSpeed={F(result.SwingSpeed)}" +
                 $"|resultFaceAngle={F(result.FaceAngle)}" +
-                $"|contactPoint={V(result.ContactPoint)}";
+                $"|contactPoint={V(result.ContactPoint)}" +
+                $"|contactFaceNormal={V(result.ContactFaceNormal)}" +
+                $"|contactFaceRight={V(result.ContactFaceRight)}" +
+                $"|contactFaceUp={V(result.ContactFaceUp)}" +
+                $"|contactFaceVelocity={V(result.ContactFaceVelocity)}" +
+                $"|contactSwingDirection={V(result.ContactSwingDirection)}" +
+                $"|contactLocalX={F(result.ContactLocalX)}" +
+                $"|contactLocalY={F(result.ContactLocalY)}" +
+                $"|contactPlane={F(result.ContactPlaneDistance)}" +
+                $"|contactTracking={F(result.ContactTrackingConfidence)}";
         }
 
         // Field values stay single-token so simple grep/split tooling can parse them reliably.

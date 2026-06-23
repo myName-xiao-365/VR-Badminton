@@ -413,12 +413,12 @@ namespace VRBadminton.App
             while (progress < 1f)
             {
                 float movementScale = isOpponentSmash
-                    ? opponentSmashSpeedBeforeNet
+                    ? Mathf.Max(1f, opponentSmashSpeedBeforeNet)
                     : 1f;
                 if (previousPosition.z <= 0f)
                 {
                     movementScale = isOpponentSmash
-                        ? opponentSmashSpeedAfterNet
+                        ? Mathf.Max(1f, opponentSmashSpeedAfterNet)
                         : speedAfterNet;
                 }
                 progress = Mathf.Min(1f, progress + Time.deltaTime * movementScale / duration);
@@ -511,6 +511,7 @@ namespace VRBadminton.App
             }
 
             pendingSwingSpeed = lastHitResult.SwingSpeed;
+            pendingSwingPowerSpeed = Mathf.Max(pendingSwingPowerSpeed, pendingSwingSpeed);
             pendingStartAngle = lastHitResult.FaceAngle;
             swingUpward = lastHitResult.SwingUpward;
             shot = MapResolvedShot(lastHitResult.Shot);
@@ -569,28 +570,53 @@ namespace VRBadminton.App
             opponentReturningToCenter = false;
             currentFlightHitter = 1;
             netFaultTriggered = false;
-            temporarySlowMotionArmed =
-                temporarySlowMotionEnabled &&
-                shot != ShotType.Miss;
-            ShuttlePlayerReturnPlan returnPlan =
-                shuttleReturnPlanner.CreatePlayerReturnPlan(
+            ShotType resolverShot = shot;
+            ShuttlePlayerReturnPlan returnPlan;
+            if (inputMode == BadmintonInputMode.Sensor)
+            {
+                bool sensorJumpSmash = !incomingFrontCourt &&
+                    jumpActive &&
+                    jumpOffset >= jumpHeight * 0.25f;
+                returnPlan = shuttleReturnPlanner.CreateSensorPlayerReturnPlan(
+                    start,
+                    lastHitResult,
+                    pendingSwingPowerSpeed,
+                    CourtLengthScale,
+                    mediumSwingSpeed,
+                    fastSwingSpeed,
+                    sensorReturnPowerExponent,
+                    sensorAssistPowerRetention,
+                    sensorMagnetPowerRetention,
+                    sensorMaxAimYawDegrees,
+                    sensorJumpSmash);
+                shot = returnPlan.Shot;
+            }
+            else
+            {
+                returnPlan = shuttleReturnPlanner.CreatePlayerReturnPlan(
                     shot,
                     CourtLengthScale,
                     minimumSwingSpeed,
                     fastSwingSpeed,
                     pendingSwingSpeed);
+                shot = returnPlan.Shot;
+            }
+
             Vector3 target = returnPlan.Target;
             float duration = returnPlan.Duration;
             float arcHeight = returnPlan.ArcHeight;
+            temporarySlowMotionArmed =
+                temporarySlowMotionEnabled &&
+                shot != ShotType.Miss;
             SetTrailForShot(shot);
 
-            bool returnUsesClearArc = shot == ShotType.Clear;
-            float returnApexT = returnUsesClearArc ? 0.7f : 0.5f;
+            bool returnUsesClearArc = returnPlan.UsesHighArc;
+            float returnApexT = returnPlan.ApexT;
             ShowLandingPrediction(start, target, returnApexT, returnUsesClearArc);
 
             float progress = 0f;
             Vector3 previousPosition = start;
-            float opponentContactProgress = shot == ShotType.Clear
+            float opponentContactProgress = returnUsesClearArc
                 ? FindDescendingContactProgress(
                     start,
                     target,
@@ -626,7 +652,7 @@ namespace VRBadminton.App
                 plannedOverheadBackhand;
             LogSensorHitDebug(
                 "player_return_plan",
-                $"shot={shot}|start={V(start)}|target={V(target)}|duration={F(duration)}|arcHeight={F(arcHeight)}|opponentContactT={F(opponentContactProgress)}|opponentContact={V(opponentContactPoint)}|opponentReady={V(opponentReadyPosition)}|plannedOpponentShot={plannedOpponentShot}|plannedBackhand={B(plannedOverheadBackhand)}");
+                $"resolverShot={resolverShot}|shot={shot}|start={V(start)}|target={V(target)}|duration={F(duration)}|arcHeight={F(arcHeight)}|apexT={F(returnApexT)}|usesHighArc={B(returnUsesClearArc)}|rawPower01={F(returnPlan.RawPower01)}|effectivePower01={F(returnPlan.EffectivePower01)}|retention={F(returnPlan.ContactRetention)}|aim01={F(returnPlan.Aim01)}|aimYaw={F(returnPlan.AimYawDegrees)}|elevation01={F(returnPlan.Elevation01)}|lift01={F(returnPlan.Lift01)}|attack01={F(returnPlan.Attack01)}|jumpSmash={B(!incomingFrontCourt && jumpActive && jumpOffset >= jumpHeight * 0.25f)}|powerSpeed={F(pendingSwingPowerSpeed)}|opponentContactT={F(opponentContactProgress)}|opponentContact={V(opponentContactPoint)}|opponentReady={V(opponentReadyPosition)}|plannedOpponentShot={plannedOpponentShot}|plannedBackhand={B(plannedOverheadBackhand)}");
 
             while (progress < opponentContactProgress)
             {
