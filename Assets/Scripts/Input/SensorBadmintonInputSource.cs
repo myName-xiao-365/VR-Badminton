@@ -7,6 +7,10 @@ namespace VRBadminton.Input
     {
         private const long PlayerStaleMs = 650;
         private const long RacketStaleMs = 420;
+        private const long JumpCooldownMs = 700;
+        private const float JumpRiseThreshold = 0.035f;
+        private const float JumpVelocityThreshold = 0.28f;
+        private const float JumpBaselineAlpha = 0.08f;
         private static readonly ProfilerMarker SensorTickMarker =
             new ProfilerMarker("VRBadminton.SensorInput.Tick");
 
@@ -24,6 +28,12 @@ namespace VRBadminton.Input
         private BadmintonRacketFrame latestRacket = BadmintonRacketFrame.Default("phone");
         private BadmintonSwingSample latestSwing = BadmintonSwingSample.Default();
         private long lastPhoneSequence = -1;
+        private long lastReadySequence;
+        private long lastJumpAtMs = -JumpCooldownMs;
+        private long lastJumpSampleMs;
+        private float groundedCenterY;
+        private float lastCenterY;
+        private bool hasJumpBaseline;
 
         public SensorBadmintonInputSource(
             Vector3 initialGroundPosition,
@@ -65,6 +75,8 @@ namespace VRBadminton.Input
         public void Start()
         {
             phoneServer.Start(preferredPhonePort);
+            lastReadySequence = phoneServer.ReadySequence;
+            ResetJumpDetection();
             poseInput.Start();
             snapshot.PhoneUrl = phoneServer.Url;
         }
@@ -90,6 +102,8 @@ namespace VRBadminton.Input
                 snapshot.ToggleBackhand = false;
                 snapshot.HasSwingGesture = false;
                 snapshot.SmashReceiveReady = false;
+                snapshot.OpponentServeReady = false;
+                snapshot.JumpReady = false;
 
                 poseInput.Tick();
                 if (poseInput.TryGetLatestFrame(out BadmintonPlayerFrame player))
@@ -99,6 +113,13 @@ namespace VRBadminton.Input
 
                 bool hasPhoneFrame = phoneServer.TryGetLatestFrame(out BadmintonRacketFrame racket);
                 bool newPhoneFrame = hasPhoneFrame && phoneServer.Sequence != lastPhoneSequence;
+                long readySequence = phoneServer.ReadySequence;
+                if (readySequence != lastReadySequence)
+                {
+                    snapshot.OpponentServeReady = true;
+                    lastReadySequence = readySequence;
+                }
+
                 if (hasPhoneFrame)
                 {
                     latestRacket = racket;
@@ -120,6 +141,7 @@ namespace VRBadminton.Input
 
                 bool playerStale = !latestPlayer.Visible || now - latestPlayer.Timestamp > PlayerStaleMs;
                 bool racketStale = !hasPhoneFrame || now - latestRacket.Timestamp > RacketStaleMs;
+                bool jumpReady = DetectSmallJump(latestPlayer, playerStale, now);
                 float faceAngle = racketStale ? snapshot.FaceAngle : BadmintonInputMath.FaceAngleFromRacket(latestRacket);
                 float face01 = Mathf.InverseLerp(-45f, 120f, faceAngle);
                 float gameSpeed = latestSwing.AngularSpeed * angularSpeedToGameSpeed;
@@ -144,11 +166,8 @@ namespace VRBadminton.Input
                 snapshot.SwingUpward = latestSwing.Direction.y < 0f;
                 snapshot.SwingGameSpeed = gameSpeed;
                 snapshot.SwingStartAngle = faceAngle;
-                snapshot.SmashReceiveReady =
-                    (!playerStale && latestPlayer.RightHand.Visible && latestPlayer.RightHand.Height >= 0.68f) ||
-                    latestSwing.State == BadmintonSwingState.Prepare ||
-                    latestSwing.State == BadmintonSwingState.Swing ||
-                    latestSwing.State == BadmintonSwingState.ImpactCandidate;
+                snapshot.SmashReceiveReady = false;
+                snapshot.JumpReady = jumpReady;
                 snapshot.Status = StatusLine(playerStale, racketStale);
                 snapshot.CameraStatus = poseInput.Status;
                 snapshot.PhoneStatus = phoneServer.Status;
@@ -163,6 +182,64 @@ namespace VRBadminton.Input
                 snapshot.PhoneConnected = !racketStale;
                 snapshot.Calibrated = latestPlayer.Calibrated;
             }
+        }
+
+        private void ResetJumpDetection()
+        {
+            lastJumpAtMs = -JumpCooldownMs;
+            lastJumpSampleMs = 0;
+            groundedCenterY = 0f;
+            lastCenterY = 0f;
+            hasJumpBaseline = false;
+        }
+
+        private bool DetectSmallJump(
+            BadmintonPlayerFrame player,
+            bool playerStale,
+            long now)
+        {
+            if (playerStale ||
+                !player.Visible ||
+                player.Confidence < 0.55f ||
+                player.TrackingBasis != "torso")
+            {
+                hasJumpBaseline = false;
+                return false;
+            }
+
+            float centerY = player.Center.y;
+            if (!hasJumpBaseline)
+            {
+                groundedCenterY = centerY;
+                lastCenterY = centerY;
+                lastJumpSampleMs = now;
+                hasJumpBaseline = true;
+                return false;
+            }
+
+            float elapsed = Mathf.Max(0.001f, (now - lastJumpSampleMs) / 1000f);
+            float velocityY = (centerY - lastCenterY) / elapsed;
+            bool inCooldown = now - lastJumpAtMs < JumpCooldownMs;
+            bool jumpReady =
+                !inCooldown &&
+                centerY - groundedCenterY >= JumpRiseThreshold &&
+                velocityY >= JumpVelocityThreshold;
+
+            lastCenterY = centerY;
+            lastJumpSampleMs = now;
+
+            if (jumpReady)
+            {
+                lastJumpAtMs = now;
+                return true;
+            }
+
+            if (!inCooldown && velocityY < JumpVelocityThreshold * 0.35f)
+            {
+                groundedCenterY = Mathf.Lerp(groundedCenterY, centerY, JumpBaselineAlpha);
+            }
+
+            return false;
         }
 
         private string StatusLine(bool playerStale, bool racketStale)

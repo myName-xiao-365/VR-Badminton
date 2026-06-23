@@ -39,6 +39,9 @@ namespace VRBadminton.Input
         private const float ImageToUserXSign = -1f;
         private const float XGain = 6.0f;
         private const float ZGain = 5.8f;
+        private const float ZScaleDeltaDeadzone = 0.0025f;
+        private const float ZScaleDeltaMaxStep = 0.18f;
+        private const float ZPositionLimit = 3.2f;
         private const float LeanGain = 2.2f;
         private const float XSmoothAlpha = 0.42f;
         private const float ZSmoothAlpha = 0.18f;
@@ -56,6 +59,9 @@ namespace VRBadminton.Input
         private BadmintonPlayerFrame lastFrame = BadmintonPlayerFrame.Default("camera");
         private float lastComputedScale = 0.24f;
         private float lastComputedTorsoHeight = 0.25f;
+        private float trackedVirtualZ;
+        private float lastDepthScale;
+        private bool hasDepthScaleSample;
 
         public bool Calibrated => calibrationReady;
 
@@ -67,6 +73,9 @@ namespace VRBadminton.Input
             calibrationTorsoHeight = 0f;
             calibrationReady = false;
             hasSmoothedPosition = false;
+            trackedVirtualZ = 0f;
+            lastDepthScale = 0f;
+            hasDepthScaleSample = false;
             lastFrame = BadmintonPlayerFrame.Default("camera");
         }
 
@@ -84,6 +93,7 @@ namespace VRBadminton.Input
                     candidate = BuildCandidateFrame(landmarks, timestampMs, clientId);
                 }
 
+                UpdateRelativeDepth(ref candidate);
                 candidate = SmoothVisibleFrame(candidate);
                 lastFrame = candidate;
                 return candidate;
@@ -177,12 +187,7 @@ namespace VRBadminton.Input
             calibrationCenter.y = center.y;
             Vector2 centerDelta = center - calibrationCenter;
             float virtualX = centerDelta.x * ImageToUserXSign * XGain + lean.x * LeanGain;
-            float virtualZ = 0f;
-            if (calibrationReady && trackingBasis == "torso")
-            {
-                float scaleDelta = (apparentScale - calibrationScale) / Mathf.Max(calibrationScale, 0.000001f);
-                virtualZ = scaleDelta * ZGain;
-            }
+            float virtualZ = calibrationReady ? trackedVirtualZ : 0f;
 
             float torsoRatio = calibrationReady
                 ? torsoHeight / Mathf.Max(calibrationTorsoHeight, 0.000001f)
@@ -230,6 +235,57 @@ namespace VRBadminton.Input
             frame.VirtualPosition = smoothedVirtualPosition;
             frame.MotionState = ClassifyMotion(frame.VirtualPosition, frame.Lean);
             return frame;
+        }
+
+        private void UpdateRelativeDepth(ref BadmintonPlayerFrame frame)
+        {
+            if (!calibrationReady)
+            {
+                return;
+            }
+
+            if (frame.TrackingBasis != "torso")
+            {
+                hasDepthScaleSample = false;
+                frame.VirtualPosition = new Vector3(
+                    frame.VirtualPosition.x,
+                    frame.VirtualPosition.y,
+                    trackedVirtualZ);
+                frame.MotionState = ClassifyMotion(frame.VirtualPosition, frame.Lean);
+                return;
+            }
+
+            float currentScale = Mathf.Max(0.000001f, lastComputedScale);
+            if (!hasDepthScaleSample)
+            {
+                lastDepthScale = currentScale;
+                hasDepthScaleSample = true;
+                frame.VirtualPosition = new Vector3(
+                    frame.VirtualPosition.x,
+                    frame.VirtualPosition.y,
+                    trackedVirtualZ);
+                frame.MotionState = ClassifyMotion(frame.VirtualPosition, frame.Lean);
+                return;
+            }
+
+            float scaleDelta = Mathf.Log(currentScale / Mathf.Max(0.000001f, lastDepthScale));
+            lastDepthScale = currentScale;
+            float absDelta = Mathf.Abs(scaleDelta);
+            if (absDelta >= ZScaleDeltaDeadzone)
+            {
+                float adjustedDelta = Mathf.Sign(scaleDelta) *
+                    Mathf.Min(absDelta - ZScaleDeltaDeadzone, ZScaleDeltaMaxStep);
+                trackedVirtualZ = Mathf.Clamp(
+                    trackedVirtualZ + adjustedDelta * ZGain,
+                    -ZPositionLimit,
+                    ZPositionLimit);
+            }
+
+            frame.VirtualPosition = new Vector3(
+                frame.VirtualPosition.x,
+                frame.VirtualPosition.y,
+                trackedVirtualZ);
+            frame.MotionState = ClassifyMotion(frame.VirtualPosition, frame.Lean);
         }
 
         private void UpdateAutoCalibration(BadmintonPlayerFrame frame)

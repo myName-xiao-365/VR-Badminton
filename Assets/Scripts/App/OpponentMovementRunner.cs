@@ -344,9 +344,9 @@ namespace VRBadminton.App
             approachProgress = Mathf.Clamp01(approachProgress);
             Vector3 readyRacketPosition = GetReadyRacketPosition();
             Quaternion readyRacketRotation = GetReadyRacketRotation();
-            Quaternion loweredBody = Quaternion.Euler(7f, 8f, -4f);
+            Quaternion loweredBody = Quaternion.Euler(-7f, 8f, -4f);
             Quaternion waitingRotation = GetForehandNetWaitingRotation();
-            SetRacketFaceReversed(rig, true);
+            SetRacketFaceReversed(rig, false);
             Vector3 localContact = rig.Player.InverseTransformPoint(contactPoint);
             Vector3 waitingPosition =
                 localContact -
@@ -402,7 +402,7 @@ namespace VRBadminton.App
             approachProgress = Mathf.Clamp01(approachProgress);
             Vector3 readyRacketPosition = GetReadyRacketPosition();
             Quaternion readyRacketRotation = GetReadyRacketRotation();
-            Quaternion loweredBody = Quaternion.Euler(7f, -45f, 5f);
+            Quaternion loweredBody = Quaternion.Euler(-7f, -45f, 5f);
             Quaternion waitingRotation = GetBackhandNetWaitingRotation();
             SetRacketFaceReversed(rig, false);
             Vector3 localContact = rig.Player.InverseTransformPoint(contactPoint);
@@ -463,12 +463,12 @@ namespace VRBadminton.App
 
         public static Quaternion GetForehandNetWaitingRotation()
         {
-            return Quaternion.Euler(100f, 180f, -4f);
+            return Quaternion.Euler(-100f, 360.004f, 40.772f);
         }
 
         public static Quaternion GetBackhandNetWaitingRotation()
         {
-            return Quaternion.Euler(100f, 180f, -4f);
+            return Quaternion.Euler(-261.192f, 159.933f, 9.886002f);
         }
 
         public void SetRacketFaceReversed(OpponentRig rig, bool reversed)

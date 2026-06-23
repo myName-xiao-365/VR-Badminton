@@ -124,8 +124,7 @@ namespace VRBadminton.App
                 shot,
                 backhand,
                 receivingSmash);
-            SetOpponentRacketFaceReversed(
-                style == OpponentSwingStyle.ForehandNet);
+            SetOpponentRacketFaceReversed(false);
             if (style == OpponentSwingStyle.ForehandOverhead)
             {
                 yield return AnimateOpponentForehandClear(forehandClearPrepared);
@@ -540,7 +539,7 @@ namespace VRBadminton.App
                 yield return AnimateOpponentPose(
                     new Vector3(-0.96f, 0.5f, -0.42f),
                     GetOpponentForehandNetWaitingRotation(),
-                    Quaternion.Euler(7f, 8f, -4f),
+                    Quaternion.Euler(-7f, 8f, -4f),
                     0.22f,
                     false,
                     0f);
@@ -551,8 +550,8 @@ namespace VRBadminton.App
             // Settle slightly lower on contact without pulling toward the body.
             yield return AnimateOpponentPose(
                 waitingPosition + new Vector3(0f, -0.055f, 0f),
-                Quaternion.Euler(104f, 180f, -3f),
-                Quaternion.Euler(7f, 8f, -4f),
+                Quaternion.Euler(-104f, 360.004f, 40.772f),
+                Quaternion.Euler(-7f, 8f, -4f),
                 0.12f,
                 false,
                 0f);
@@ -560,8 +559,8 @@ namespace VRBadminton.App
             // Rebound softly toward a nearly level, still slightly downward face.
             yield return AnimateOpponentPose(
                 waitingPosition + new Vector3(0f, -0.015f, -0.025f),
-                Quaternion.Euler(96f, 180f, -2f),
-                Quaternion.Euler(7f, 8f, -4f),
+                Quaternion.Euler(-96f, 360.004f, 40.772f),
+                Quaternion.Euler(-7f, 8f, -4f),
                 0.16f,
                 false,
                 0f);
@@ -591,7 +590,7 @@ namespace VRBadminton.App
                 yield return AnimateOpponentPose(
                     new Vector3(0.96f, 0.5f, -0.62f),
                     GetOpponentBackhandNetWaitingRotation(),
-                    Quaternion.Euler(7f, -45f, 5f),
+                    Quaternion.Euler(-7f, -45f, 5f),
                     0.22f,
                     false,
                     0f);
@@ -600,15 +599,15 @@ namespace VRBadminton.App
             Vector3 waitingPosition = opponentRacket.localPosition;
             yield return AnimateOpponentPose(
                 waitingPosition + new Vector3(0f, -0.055f, 0f),
-                Quaternion.Euler(104f, 180f, -3f),
-                Quaternion.Euler(7f, -45f, 5f),
+                Quaternion.Euler(-265.192f, 159.933f, 9.886002f),
+                Quaternion.Euler(-7f, -45f, 5f),
                 0.12f,
                 false,
                 0f);
             yield return AnimateOpponentPose(
                 waitingPosition + new Vector3(0f, -0.015f, -0.025f),
-                Quaternion.Euler(96f, 180f, -2f),
-                Quaternion.Euler(7f, -45f, 5f),
+                Quaternion.Euler(-257.192f, 159.933f, 9.886002f),
+                Quaternion.Euler(-7f, -45f, 5f),
                 0.16f,
                 false,
                 0f);

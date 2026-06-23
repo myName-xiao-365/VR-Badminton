@@ -164,6 +164,8 @@ namespace VRBadminton.Input
         public bool PlayerStale;
         public bool RacketStale;
         public bool SmashReceiveReady;
+        public bool OpponentServeReady;
+        public bool JumpReady;
         public bool ToggleBackhand;
         public bool HasGroundPosition;
         public Vector3 GroundPosition;
@@ -198,6 +200,8 @@ namespace VRBadminton.Input
                 PlayerStale = true,
                 RacketStale = true,
                 SmashReceiveReady = false,
+                OpponentServeReady = false,
+                JumpReady = false,
                 ToggleBackhand = false,
                 HasGroundPosition = false,
                 GroundPosition = Vector3.zero,

@@ -94,6 +94,24 @@ namespace VRBadminton.Tests
         }
 
         [Test]
+        public void PoseMapperDepthFollowsTorsoScaleChangeDirection()
+        {
+            BadmintonPoseLandmarkMapper mapper = CalibratedPoseMapper();
+
+            BadmintonPlayerFrame forwardFrame = mapper.BuildFrame(Pose(0.5f, 1.16f, 0.35f), 1700, "camera-test");
+            BadmintonPlayerFrame heldForwardFrame = forwardFrame;
+            for (int i = 0; i < 5; i++)
+            {
+                heldForwardFrame = mapper.BuildFrame(Pose(0.5f, 1.16f, 0.35f), 1733 + i * 33, "camera-test");
+            }
+
+            BadmintonPlayerFrame backwardFrame = mapper.BuildFrame(Pose(0.5f, 0.92f, 0.35f), 1930, "camera-test");
+
+            Assert.Greater(forwardFrame.VirtualPosition.z, 0f);
+            Assert.Less(backwardFrame.VirtualPosition.z, heldForwardFrame.VirtualPosition.z);
+        }
+
+        [Test]
         public void PoseMapperRaisesRightHandWhenLandmarkMovesUp()
         {
             BadmintonPoseLandmarkMapper highMapper = CalibratedPoseMapper();

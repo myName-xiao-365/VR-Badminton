@@ -13,6 +13,10 @@ using Mediapipe.Unity;
 using Mediapipe.Unity.Experimental;
 #endif
 
+#if VRBADMINTON_MEDIAPIPE && UNITY_ANDROID && !UNITY_EDITOR
+using UnityEngine.Android;
+#endif
+
 namespace VRBadminton.Input
 {
     internal interface IBadmintonPoseInputProvider : IDisposable
@@ -35,10 +39,11 @@ namespace VRBadminton.Input
     {
         private const string ModelAssetPath = "pose_landmarker_lite.bytes";
         private const string ClientId = "unity-camera";
-        private const int RequestedWidth = 1280;
-        private const int RequestedHeight = 720;
+        private const int RequestedWidth = 960;
+        private const int RequestedHeight = 540;
         private const int RequestedFps = 30;
-        private const long InferenceIntervalMs = 40;
+        private const long InferenceIntervalMs = 33;
+        private const float CameraStartupRetrySeconds = 1f;
         private static readonly ProfilerMarker PoseInferenceMarker =
             new ProfilerMarker("VRBadminton.MediaPipePose.Inference");
 
@@ -58,6 +63,14 @@ namespace VRBadminton.Input
         private float inferenceFps;
         private bool runtimeInitialized;
         private bool inferenceFlipVertically;
+        private bool waitingForCameraStartup;
+        private float nextCameraStartupAttemptAt;
+        private AsyncOperation webCamAuthorizationRequest;
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private bool androidWebCamPermissionPending;
+        private bool androidWebCamPermissionDenied;
+        private PermissionCallbacks androidWebCamPermissionCallbacks;
+#endif
 
         public string Status { get; private set; } = "MediaPipe camera idle";
 
@@ -96,30 +109,38 @@ namespace VRBadminton.Input
             inferenceCount = 0;
             inferenceFps = 0f;
             inferenceFlipVertically = false;
+            waitingForCameraStartup = false;
+            nextCameraStartupAttemptAt = 0f;
+            webCamAuthorizationRequest = null;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            androidWebCamPermissionPending = false;
+            androidWebCamPermissionDenied = false;
+            androidWebCamPermissionCallbacks = null;
+#endif
             fpsWindowStartedAt = Time.realtimeSinceStartup;
 
             try
             {
                 InitializeMediaPipeRuntime();
                 PrepareModelAsset();
-                StartWebCam();
-                CreatePoseLandmarker();
-                Running = true;
-                Status = $"{deviceName}: waiting for camera frames";
+                BeginCameraStartup();
             }
             catch (Exception exception)
             {
-                Running = false;
-                Status = $"MediaPipe camera error: {exception.Message}";
-                StopWebCam();
-                DisposePoseLandmarker();
-                ShutdownMediaPipeRuntime();
+                FailCameraStartup($"MediaPipe camera error: {exception.Message}");
             }
         }
 
         public void Stop()
         {
             Running = false;
+            waitingForCameraStartup = false;
+            webCamAuthorizationRequest = null;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            androidWebCamPermissionPending = false;
+            androidWebCamPermissionDenied = false;
+            androidWebCamPermissionCallbacks = null;
+#endif
             StopWebCam();
             DisposePoseLandmarker();
             textureFrame?.Dispose();
@@ -134,6 +155,15 @@ namespace VRBadminton.Input
 
         public void Tick()
         {
+            if (waitingForCameraStartup)
+            {
+                TickCameraStartup();
+                if (!Running)
+                {
+                    return;
+                }
+            }
+
             if (!Running || webCamTexture == null || poseLandmarker == null)
             {
                 return;
@@ -274,17 +304,177 @@ namespace VRBadminton.Input
             runtimeInitialized = false;
         }
 
-        private void StartWebCam()
+        private void BeginCameraStartup()
         {
+            Running = false;
+            waitingForCameraStartup = true;
+            nextCameraStartupAttemptAt = Time.realtimeSinceStartup;
+
+            if (!RequestWebCamAuthorizationIfNeeded())
+            {
+                return;
+            }
+
+            TryStartCameraPipeline();
+        }
+
+        private bool RequestWebCamAuthorizationIfNeeded()
+        {
+#if UNITY_EDITOR
+            return true;
+#elif UNITY_ANDROID
+            if (Permission.HasUserAuthorizedPermission(Permission.Camera))
+            {
+                return true;
+            }
+
+            if (androidWebCamPermissionDenied)
+            {
+                FailCameraStartup("camera: Android camera permission denied");
+                return false;
+            }
+
+            if (!androidWebCamPermissionPending)
+            {
+                androidWebCamPermissionPending = true;
+                androidWebCamPermissionCallbacks = new PermissionCallbacks();
+                androidWebCamPermissionCallbacks.PermissionGranted += OnAndroidWebCamPermissionGranted;
+                androidWebCamPermissionCallbacks.PermissionDenied += OnAndroidWebCamPermissionDenied;
+                androidWebCamPermissionCallbacks.PermissionDeniedAndDontAskAgain += OnAndroidWebCamPermissionDenied;
+                Permission.RequestUserPermission(Permission.Camera, androidWebCamPermissionCallbacks);
+            }
+
+            Status = "camera: waiting for Android camera permission";
+            nextCameraStartupAttemptAt = Time.realtimeSinceStartup + CameraStartupRetrySeconds;
+            return false;
+#elif UNITY_IOS || UNITY_WEBGL || UNITY_STANDALONE_OSX
+            if (Application.HasUserAuthorization(UserAuthorization.WebCam))
+            {
+                return true;
+            }
+
+            webCamAuthorizationRequest = Application.RequestUserAuthorization(UserAuthorization.WebCam);
+            Status = "camera: waiting for webcam permission";
+            nextCameraStartupAttemptAt = Time.realtimeSinceStartup + CameraStartupRetrySeconds;
+            return false;
+#else
+            return true;
+#endif
+        }
+
+        private void TickCameraStartup()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (androidWebCamPermissionPending)
+            {
+                Status = "camera: waiting for Android camera permission";
+                return;
+            }
+
+            if (androidWebCamPermissionDenied)
+            {
+                FailCameraStartup("camera: Android camera permission denied");
+                return;
+            }
+#elif (UNITY_IOS || UNITY_WEBGL || UNITY_STANDALONE_OSX) && !UNITY_EDITOR
+            if (webCamAuthorizationRequest != null)
+            {
+                if (!webCamAuthorizationRequest.isDone)
+                {
+                    Status = "camera: waiting for webcam permission";
+                    return;
+                }
+
+                webCamAuthorizationRequest = null;
+                if (!Application.HasUserAuthorization(UserAuthorization.WebCam))
+                {
+                    FailCameraStartup("camera: webcam permission denied");
+                    return;
+                }
+            }
+#endif
+
+            if (Time.realtimeSinceStartup < nextCameraStartupAttemptAt)
+            {
+                return;
+            }
+
+            TryStartCameraPipeline();
+        }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private void OnAndroidWebCamPermissionGranted(string permissionName)
+        {
+            if (permissionName != Permission.Camera)
+            {
+                return;
+            }
+
+            androidWebCamPermissionPending = false;
+            androidWebCamPermissionCallbacks = null;
+        }
+
+        private void OnAndroidWebCamPermissionDenied(string permissionName)
+        {
+            if (permissionName != Permission.Camera)
+            {
+                return;
+            }
+
+            androidWebCamPermissionPending = false;
+            androidWebCamPermissionDenied = true;
+            androidWebCamPermissionCallbacks = null;
+        }
+#endif
+
+        private void TryStartCameraPipeline()
+        {
+            try
+            {
+                if (!TryStartWebCam(out string waitingStatus))
+                {
+                    Status = waitingStatus;
+                    nextCameraStartupAttemptAt =
+                        Time.realtimeSinceStartup + CameraStartupRetrySeconds;
+                    return;
+                }
+
+                CreatePoseLandmarker();
+                Running = true;
+                waitingForCameraStartup = false;
+                Status = $"{deviceName}: waiting for camera frames";
+            }
+            catch (Exception exception)
+            {
+                FailCameraStartup($"MediaPipe camera error: {exception.Message}");
+            }
+        }
+
+        private bool TryStartWebCam(out string waitingStatus)
+        {
+            waitingStatus = string.Empty;
             WebCamDevice[] devices = WebCamTexture.devices;
             if (devices == null || devices.Length == 0)
             {
-                throw new InvalidOperationException("No webcam device found");
+                waitingStatus = "camera: waiting for webcam device";
+                return false;
             }
 
             deviceName = devices[0].name;
             webCamTexture = new WebCamTexture(deviceName, RequestedWidth, RequestedHeight, RequestedFps);
             webCamTexture.Play();
+            return true;
+        }
+
+        private void FailCameraStartup(string status)
+        {
+            Running = false;
+            waitingForCameraStartup = false;
+            webCamAuthorizationRequest = null;
+            Status = status;
+            StopWebCam();
+            DisposePoseLandmarker();
+            ShutdownMediaPipeRuntime();
         }
 
         private void StopWebCam()

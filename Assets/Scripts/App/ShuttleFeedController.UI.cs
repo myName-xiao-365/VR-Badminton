@@ -86,7 +86,7 @@ namespace VRBadminton.App
                         smashReceiveReady
                             ? "READY - SWING UP"
                             : inputMode == BadmintonInputMode.Sensor
-                                ? "RAISE HAND / PREPARE SWING"
+                                ? "SWING TO RECEIVE"
                                 : "PRESS SPACE TO RECEIVE",
                         uiLabelStyle);
                 }
@@ -96,7 +96,9 @@ namespace VRBadminton.App
                     GUI.color = new Color(1f, 0.86f, 0.25f, 1f);
                     GUI.Label(
                         new Rect(Screen.width * 0.5f - 180f, 62f, 360f, 30f),
-                        "PRESS SPACE TO START SERVE",
+                        inputMode == BadmintonInputMode.Sensor
+                            ? "PHONE READY TO START SERVE"
+                            : "PRESS SPACE TO START SERVE",
                         uiLabelStyle);
                 }
 

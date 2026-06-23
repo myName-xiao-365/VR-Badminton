@@ -19,6 +19,7 @@ namespace VRBadminton.Input
         private BadmintonRacketFrame parsedFrame = BadmintonRacketFrame.Default("phone");
         private long latestReceivedMs;
         private long sequence;
+        private long readySequence;
         private bool hasStableOrientation;
         private Quaternion stableOrientation = Quaternion.identity;
 
@@ -26,6 +27,7 @@ namespace VRBadminton.Input
         public string Url { get; private set; } = string.Empty;
         public string Status { get; private set; } = "Phone server idle";
         public long Sequence => sequence;
+        public long ReadySequence => readySequence;
         public long LatestReceivedMs => latestReceivedMs;
 
         public void Start(int preferredPort)
@@ -239,6 +241,18 @@ namespace VRBadminton.Input
                     return;
                 }
 
+                if (method == "POST" && path.StartsWith("/racket-ready", StringComparison.OrdinalIgnoreCase))
+                {
+                    lock (sync)
+                    {
+                        readySequence++;
+                    }
+
+                    Status = "Phone ready";
+                    WriteResponse(stream, "application/json", "{\"ok\":true}");
+                    return;
+                }
+
                 if (method == "GET" && (path == "/" || path.StartsWith("/phone.html", StringComparison.OrdinalIgnoreCase)))
                 {
                     WriteResponse(stream, "text/html; charset=utf-8", PhoneHtml());
@@ -295,47 +309,62 @@ namespace VRBadminton.Input
         private static string PhoneHtml()
         {
             return @"<!doctype html>
-<html lang=""en"">
+<html lang=""zh-CN"">
 <head>
 <meta charset=""utf-8"">
 <meta name=""viewport"" content=""width=device-width,initial-scale=1"">
-<title>VR Badminton Phone Racket</title>
+<title>方块羽球 手机球拍</title>
 <style>
-body{margin:0;background:#0b1020;color:#eef2ff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-main{max-width:720px;margin:0 auto;padding:22px}
-.card{background:#151b2f;border:1px solid #283149;border-radius:8px;padding:16px;margin:12px 0}
-button{border:0;border-radius:8px;padding:12px 14px;margin:4px;background:#4f8cff;color:white;font-weight:700}
-button.secondary{background:#334155}.ok{color:#86efac}.bad{color:#fca5a5}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.metric{background:#0f172a;border-radius:6px;padding:10px}
-.metric span{display:block;color:#94a3b8;font-size:12px}.metric strong{font-size:18px}
-code{word-break:break-all;color:#fde68a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#5b8f3a;color:#fff7d6;font-family:system-ui,-apple-system,Segoe UI,sans-serif;image-rendering:pixelated}
+body:before{content:"""";position:fixed;inset:0;background:
+linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px),
+linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px);
+background-size:24px 24px;pointer-events:none}
+main{max-width:520px;margin:0 auto;padding:18px 18px 150px}
+.panel{background:#3f2b18;border:4px solid #1e160d;box-shadow:0 6px 0 #1e160d,0 0 0 4px #7a5630 inset;padding:16px}
+h1{margin:0 0 8px;font-size:28px;line-height:1.1;text-shadow:3px 3px 0 #1e160d}
+.hint{margin:10px 0 14px;color:#f7e7a7;font-size:15px;line-height:1.45}
+.bar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.tile{background:#243516;border:3px solid #111b0b;box-shadow:0 3px 0 #111b0b;padding:10px;min-height:62px}
+.tile span{display:block;color:#b7e08d;font-size:12px}.tile strong{display:block;margin-top:4px;font-size:20px}
+.steps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:8px 0}
+.step{background:#243516;border:3px solid #111b0b;color:#b7e08d;text-align:center;padding:8px 2px;font-weight:900}
+.step.done{background:#78a83a;color:#111b0b}
+button{width:100%;border:4px solid #111b0b;box-shadow:0 5px 0 #111b0b;background:#4f8f2e;color:#fff7d6;font-weight:900;font-size:18px;padding:13px 10px;margin:8px 0;text-shadow:2px 2px 0 #1e160d}
+button:active{transform:translateY(4px);box-shadow:0 1px 0 #111b0b}
+.readyDock{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:min(480px,calc(100vw - 36px));z-index:2}
+#ready{background:#d69b2d;color:#211608;font-size:24px;text-shadow:none;margin:0}
+.ok{color:#a7f27a}.bad{color:#ffb0a8}
 </style>
 </head>
 <body>
 <main>
-<h1>Phone Racket</h1>
-<p>Hold the phone firmly as the racket handle. Start sensors, record the three static poses, then swing.</p>
-<section class=""card"">
-<button id=""start"">Start sensors</button>
-<button id=""record"" class=""secondary"">Record pose</button>
-<div class=""grid"">
-<div class=""metric""><span>Sensor</span><strong id=""sensor"">idle</strong></div>
-<div class=""metric""><span>Calibration</span><strong id=""calib"">0 / 3</strong></div>
-<div class=""metric""><span>Angular speed</span><strong id=""speed"">0 deg/s</strong></div>
-<div class=""metric""><span>Sent</span><strong id=""sent"">0</strong></div>
+<section class=""panel"">
+<h1>方块球拍</h1>
+<p class=""hint"" id=""hint"">先完成三步位姿初始化。回合准备时摆准备式，再按屏幕下方的准备开球。</p>
+<button id=""start"">启动传感器</button>
+<button id=""record"">记录位姿</button>
+<div class=""steps"">
+<div class=""step"" id=""step0"">1 竖直</div>
+<div class=""step"" id=""step1"">2 平放</div>
+<div class=""step"" id=""step2"">3 侧向</div>
 </div>
-<p id=""hint"">Pose 1: upright, screen toward chest, charging port down.</p>
-<p>Endpoint: <code>/racket-frame</code></p>
+<div class=""bar"">
+<div class=""tile""><span>状态</span><strong id=""sensor"">未启动</strong></div>
+<div class=""tile""><span>初始化</span><strong id=""calib"">0/3</strong></div>
+</div>
 </section>
+<div class=""readyDock""><button id=""ready"">准备开球</button></div>
 </main>
 <script>
 const clientId='phone-'+Math.random().toString(36).slice(2,8);
 const poses=[
-  'Pose 1: upright, screen toward chest, charging port down.',
-  'Pose 2: flat, screen upward, charging port toward chest.',
-  'Pose 3: side, charging port left, screen toward chest.'
+  '位姿 1：竖直拿拍，手机屏幕朝左，充电口朝下。',
+  '位姿 2：手机平放，屏幕朝上，充电口朝向身体。',
+  '位姿 3：侧向拿拍，充电口朝左，屏幕朝向身体。'
 ];
-let enabled=false, aligned=false, recording=false, step=0, sent=0, sending=false;
+let enabled=false, aligned=false, recording=false, step=0, sending=false, hasOrientation=false, sendTimer=null;
 let raw={alpha:0,beta:0,gamma:0};
 let zero={alpha:0,beta:0,gamma:0};
 let base=null, relative=identity();
@@ -364,6 +393,11 @@ function quat(m){
   else{const s=Math.sqrt(1+m[8]-m[0]-m[4])*2;w=(m[3]-m[1])/s;x=(m[2]+m[6])/s;y=(m[5]+m[7])/s;z=.25*s;}
   const l=Math.hypot(x,y,z,w)||1;return [x/l,y/l,z/l,w/l];
 }
+function setStatus(text,ok){
+  $('sensor').textContent=text;
+  $('sensor').className=ok?'ok':'bad';
+}
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 function avg(items,key){return items.reduce((s,x)=>s+Number(x[key]||0),0)/Math.max(1,items.length);}
 function circularAvg(items,key){
   if(!items.length)return 0;
@@ -371,9 +405,13 @@ function circularAvg(items,key){
   for(const item of items){const r=deg(item[key]);sx+=Math.cos(r);sy+=Math.sin(r);}
   return Math.atan2(sy/items.length,sx/items.length)*180/Math.PI;
 }
+function refreshSteps(){
+  $('calib').textContent=step+'/3';
+  for(let i=0;i<3;i++)$('step'+i).className=i<step?'step done':'step';
+}
 async function start(){
   try{
-    const api=DeviceOrientationEvent;
+    const api=window.DeviceOrientationEvent;
     if(api&&typeof api.requestPermission==='function'){
       const r=await api.requestPermission();
       if(r!=='granted')throw new Error('permission denied');
@@ -381,13 +419,16 @@ async function start(){
     if(!enabled){
       addEventListener('deviceorientation',onOrientation);
       addEventListener('devicemotion',onMotion);
-      setInterval(send,33);
+      sendTimer=setInterval(send,16);
     }
-    enabled=true;$('sensor').textContent='running';$('sensor').className='ok';
-  }catch(e){$('sensor').textContent=e.message||'failed';$('sensor').className='bad';}
+    enabled=true;
+    setStatus('运行中',true);
+    $('hint').textContent=aligned?'保持准备式，等回合准备时按「准备开球」。':poses[step];
+  }catch(e){setStatus(e.message||'启动失败',false);}
 }
 function onOrientation(e){
   raw={alpha:Number(e.alpha||0),beta:Number(e.beta||0),gamma:Number(e.gamma||0)};
+  hasOrientation=true;
   if(recording)samples.push(raw);
   const current=orientationMatrix(raw);
   if(!base)base=current;
@@ -398,42 +439,83 @@ function onMotion(e){
   angularVelocity=[Number(r.beta||0),Number(r.alpha||0),Number(r.gamma||0)];
   const a=e.acceleration||e.accelerationIncludingGravity||{};
   acceleration=[Number(a.x||0),Number(a.y||0),Number(a.z||0)];
-  $('speed').textContent=Math.hypot(...angularVelocity).toFixed(0)+' deg/s';
 }
-function record(){
+function recenter(){
+  zero={alpha:raw.alpha,beta:raw.beta,gamma:raw.gamma};
+  base=orientationMatrix(raw);
+  relative=identity();
+  aligned=true;
+}
+async function recordPose(){
+  if(!enabled)await start();
+  if(!hasOrientation)await sleep(450);
+  if(!hasOrientation){
+    setStatus('等待姿态',false);
+    $('hint').textContent='手机还没给出姿态数据，稍等半秒再记录。';
+    return;
+  }
   samples=[];
   recording=true;
-  $('hint').textContent='Hold still...';
+  $('hint').textContent='保持不动...';
   setTimeout(()=>{
     recording=false;
     if(samples.length>2){
       const sample={alpha:circularAvg(samples,'alpha'),beta:avg(samples,'beta'),gamma:avg(samples,'gamma')};
-      if(step===0){zero=sample;base=orientationMatrix(sample);}
+      if(step===0){zero=sample;base=orientationMatrix(sample);relative=identity();}
       step=Math.min(3,step+1);
       aligned=step>=3;
-      $('calib').textContent=step+' / 3';
-      $('hint').textContent=aligned?'Calibration complete. Swing when ready.':poses[step];
+      refreshSteps();
+      setStatus(aligned?'已初始化':'记录中',true);
+      $('hint').textContent=aligned?'初始化完成。准备式：竖直拿拍，屏幕朝左，充电口朝下。':poses[step];
     }else{
-      $('hint').textContent='Not enough samples. Hold still and record again.';
+      $('hint').textContent='采样太少，请保持不动再记录一次。';
     }
   },1000);
 }
-async function send(){
-  if(!enabled||sending)return;
-  sending=true;
-  const body=JSON.stringify({
+function frameBody(){
+  return JSON.stringify({
     type:'racket_frame',timestamp:Date.now(),clientId,aligned,sessionId:clientId,
     orientation:quat(relative),rotationMatrix:relative,angularVelocity,acceleration,
     angularSpeed:Math.hypot(...angularVelocity),
     raw:{alpha:rel(raw.alpha,zero.alpha),beta:rel(raw.beta,zero.beta),gamma:rel(raw.gamma,zero.gamma)}
   });
+}
+async function sendFrame(){
+  await fetch('/racket-frame',{method:'POST',headers:{'content-type':'application/json'},body:frameBody()});
+}
+async function ready(){
   try{
-    await fetch('/racket-frame',{method:'POST',headers:{'content-type':'application/json'},body});
-    $('sent').textContent=String(++sent);
-  }catch(e){$('sensor').textContent='send failed';$('sensor').className='bad';}
+    if(!enabled)await start();
+    if(!hasOrientation)await sleep(450);
+    if(!hasOrientation){
+      setStatus('等待姿态',false);
+      $('hint').textContent='手机还没给出姿态数据，稍等半秒再按。';
+      return;
+    }
+    if(!aligned){
+      setStatus('未初始化',false);
+      $('hint').textContent='请先完成三步位姿初始化。';
+      return;
+    }
+    recenter();
+    await sendFrame();
+    await fetch('/racket-ready',{method:'POST'});
+    setStatus('已准备',true);
+    $('hint').textContent='校正完成。保持准备式，等待对方发球。';
+  }catch(e){
+    setStatus('发送失败',false);
+    $('hint').textContent='请确认手机和电脑在同一网络，再重新按准备。';
+  }
+}
+async function send(){
+  if(!enabled||sending)return;
+  sending=true;
+  try{
+    await sendFrame();
+  }catch(e){setStatus('连接中断',false);}
   sending=false;
 }
-$('start').onclick=start;$('record').onclick=record;$('hint').textContent=poses[0];
+$('start').onclick=start;$('record').onclick=recordPose;$('ready').onclick=ready;refreshSteps();$('hint').textContent=poses[0];
 </script>
 </body>
 </html>";

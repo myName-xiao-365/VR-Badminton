@@ -302,7 +302,7 @@ namespace VRBadminton.App
                         contactPoint,
                         GetOpponentForehandNetWaitingRotation());
                     opponentBody.localRotation = Quaternion.Euler(
-                        8f,
+                        -8f,
                         10f,
                         -5f);
                 }
@@ -312,7 +312,7 @@ namespace VRBadminton.App
                         contactPoint,
                         GetOpponentBackhandNetWaitingRotation());
                     opponentBody.localRotation = Quaternion.Euler(
-                        8f,
+                        -8f,
                         -45f,
                         5f);
                 }
@@ -796,14 +796,14 @@ namespace VRBadminton.App
                 AlignOpponentRacketFace(
                     opponentContactPoint,
                     GetOpponentForehandNetWaitingRotation());
-                opponentBody.localRotation = Quaternion.Euler(8f, 10f, -5f);
+                opponentBody.localRotation = Quaternion.Euler(-8f, 10f, -5f);
             }
             else if (backhandNetPrepared)
             {
                 AlignOpponentRacketFace(
                     opponentContactPoint,
                     GetOpponentBackhandNetWaitingRotation());
-                opponentBody.localRotation = Quaternion.Euler(8f, -45f, 5f);
+                opponentBody.localRotation = Quaternion.Euler(-8f, -45f, 5f);
             }
             StartCoroutine(AnimateOpponentSwing(
                 opponentSide,

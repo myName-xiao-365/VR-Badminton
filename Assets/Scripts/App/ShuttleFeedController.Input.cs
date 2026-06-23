@@ -34,22 +34,36 @@ namespace VRBadminton.App
                 : legacyInputSource;
             activeInputSource?.Start();
             inputSnapshot = activeInputSource?.Snapshot ?? BadmintonInputSnapshot.Default();
+            hasLastSensorVirtualZ = false;
             inputSourceStarted = true;
         }
 
         private Vector3 GroundPositionFromSensor(BadmintonPlayerFrame player)
         {
             float virtualZ = player.VirtualPosition.z;
-            float depthScale = virtualZ < 0f
-                ? sensorDepthScale * Mathf.Max(1f, sensorBackcourtDepthBoost)
-                : sensorDepthScale;
+            float targetZ = playerGroundPosition.z;
+            if (!hasLastSensorVirtualZ)
+            {
+                lastSensorVirtualZ = virtualZ;
+                hasLastSensorVirtualZ = true;
+            }
+            else
+            {
+                float virtualDeltaZ = virtualZ - lastSensorVirtualZ;
+                lastSensorVirtualZ = virtualZ;
+                float depthScale = virtualDeltaZ < 0f
+                    ? sensorDepthScale * Mathf.Max(1f, sensorBackcourtDepthBoost)
+                    : sensorDepthScale;
+                targetZ = Mathf.Clamp(
+                    playerGroundPosition.z + virtualDeltaZ * depthScale,
+                    -6.15f,
+                    -1.15f);
+            }
+
             return new Vector3(
                 Mathf.Clamp(player.VirtualPosition.x * sensorLateralScale, -2.85f, 2.85f),
                 0.55f,
-                Mathf.Clamp(
-                    -2.7f * CourtLengthScale + virtualZ * depthScale,
-                    -6.15f,
-                    -1.15f));
+                targetZ);
         }
 
         private void UpdateRacketPosition()
@@ -61,6 +75,10 @@ namespace VRBadminton.App
             else if (inputMode == BadmintonInputMode.Sensor && !inputSnapshot.PlayerStale)
             {
                 playerGroundPosition = GroundPositionFromSensor(inputSnapshot.Player);
+            }
+            else if (inputMode == BadmintonInputMode.Sensor)
+            {
+                hasLastSensorVirtualZ = false;
             }
 
             if (awaitingPlayerServe && inputMode == BadmintonInputMode.Legacy)
@@ -93,7 +111,7 @@ namespace VRBadminton.App
                     float sensorHandOffset = inputSnapshot.Player.RightHand.Relative.x * sensorHandLateralScale;
                     targetPosition = new Vector3(
                         playerGroundPosition.x + sensorHandOffset,
-                        sensorHeight,
+                        sensorHeight + jumpOffset,
                         playerGroundPosition.z);
                 }
             }
@@ -138,11 +156,17 @@ namespace VRBadminton.App
             }
 
             Quaternion targetRotation = racket.rotation;
+            bool resetSensorRacketPose = inputMode == BadmintonInputMode.Sensor &&
+                inputSnapshot.OpponentServeReady;
             if (inputMode == BadmintonInputMode.Sensor)
             {
-                if (!inputSnapshot.RacketStale)
+                if (resetSensorRacketPose)
                 {
-                    targetRotation = inputSnapshot.Racket.Orientation;
+                    targetRotation = CalibrateSensorRacketReadyPose();
+                }
+                else if (!inputSnapshot.RacketStale)
+                {
+                    targetRotation = SensorRacketRotation(inputSnapshot.Racket.Orientation);
                 }
             }
             else
@@ -153,7 +177,9 @@ namespace VRBadminton.App
                     isBackhand ? 8f : -8f);
             }
 
-            racket.rotation = Quaternion.Slerp(racket.rotation, targetRotation, 18f * Time.deltaTime);
+            racket.rotation = resetSensorRacketPose
+                ? targetRotation
+                : Quaternion.Slerp(racket.rotation, targetRotation, 18f * Time.deltaTime);
             racketCenterGuide.position = new Vector3(
                 racketFace.position.x,
                 0.028f,
@@ -172,6 +198,39 @@ namespace VRBadminton.App
                 playerMarker.rotation,
                 bodyRotation,
                 10f * Time.deltaTime);
+        }
+
+        private Quaternion CalibrateSensorRacketReadyPose()
+        {
+            Quaternion readyRotation = SensorReadyRacketRotation();
+            if (!inputSnapshot.RacketStale)
+            {
+                sensorRacketRotationOffset =
+                    readyRotation * Quaternion.Inverse(inputSnapshot.Racket.Orientation);
+                hasSensorRacketRotationOffset = true;
+            }
+
+            racketHistory.Clear();
+            lastRecordedRacketTime = 0f;
+            return readyRotation;
+        }
+
+        private Quaternion SensorRacketRotation(Quaternion sensorRotation)
+        {
+            return hasSensorRacketRotationOffset
+                ? sensorRacketRotationOffset * sensorRotation
+                : sensorRotation;
+        }
+
+        private static Quaternion SensorReadyRacketRotation()
+        {
+            return Quaternion.Euler(0f, 90f, 0f);
+        }
+
+        private void StartPlayerJump()
+        {
+            jumpActive = true;
+            jumpElapsed = 0f;
         }
 
         private void UpdateJump()

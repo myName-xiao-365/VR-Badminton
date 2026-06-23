@@ -197,6 +197,10 @@ namespace VRBadminton.App
         private float smoothedMouseSpeed;
         private float swingCooldown;
         private Quaternion racketRestRotation;
+        private Quaternion sensorRacketRotationOffset = Quaternion.identity;
+        private bool hasSensorRacketRotationOffset;
+        private float lastSensorVirtualZ;
+        private bool hasLastSensorVirtualZ;
         private Vector3 playerGroundPosition;
         private bool gestureTracking;
         private float gestureStartAngle;
@@ -260,7 +264,7 @@ namespace VRBadminton.App
         private Vector3 playerPredictedContactPoint;
         private bool temporarySlowMotionArmed;
         private bool temporarySlowMotionActive;
-        private bool temporarySlowMotionEnabled = true;
+        private bool temporarySlowMotionEnabled;
         private bool opponentReturningToCenter;
 
         private void Awake()
@@ -353,20 +357,34 @@ namespace VRBadminton.App
                 isBackhand = !isBackhand;
             }
 
-            if (inputSnapshot.SmashReceiveReady || UnityEngine.Input.GetKeyDown(KeyCode.Space))
+            bool spacePressed = UnityEngine.Input.GetKeyDown(KeyCode.Space);
+            bool smashReceiveRequested =
+                spacePressed ||
+                (inputMode == BadmintonInputMode.Sensor
+                    ? inputSnapshot.HasSwingGesture
+                    : inputSnapshot.SmashReceiveReady);
+            bool jumpRequested = spacePressed || inputSnapshot.JumpReady;
+            if (awaitingOpponentServe)
             {
-                if (awaitingOpponentServe)
+                if (inputSnapshot.OpponentServeReady || spacePressed)
                 {
                     opponentServeReady = true;
                 }
-                else if (incomingOpponentSmash)
+            }
+            else
+            {
+                if (inputSnapshot.JumpReady && !jumpActive)
+                {
+                    StartPlayerJump();
+                }
+
+                if (incomingOpponentSmash && smashReceiveRequested)
                 {
                     smashReceiveReady = true;
                 }
-                else if (incomingHighClear && !jumpActive)
+                else if (incomingHighClear && !jumpActive && jumpRequested)
                 {
-                    jumpActive = true;
-                    jumpElapsed = 0f;
+                    StartPlayerJump();
                 }
             }
 
