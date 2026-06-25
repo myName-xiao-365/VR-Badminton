@@ -287,6 +287,7 @@ namespace VRBadminton.App
         {
             ApplySwitchCameraPreset();
             CreateMaterials();
+            CreateHitAudio();
             CreateMinecraftBackground();
             shuttle = CreateShuttlecock().transform;
             landingMarker = CreateLandingMarker().transform;
@@ -346,6 +347,12 @@ namespace VRBadminton.App
             if (isPaused)
             {
                 return;
+            }
+
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
+                UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter))
+            {
+                ToggleInputMode();
             }
 
             if (!inputSourceStarted || activeInputMode != inputMode)

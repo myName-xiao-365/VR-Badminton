@@ -47,6 +47,14 @@ namespace VRBadminton.App
             }
         }
 
+        private void ToggleInputMode()
+        {
+            inputMode = inputMode == BadmintonInputMode.Sensor
+                ? BadmintonInputMode.Legacy
+                : BadmintonInputMode.Sensor;
+            ActivateInputMode(inputMode);
+        }
+
         private Vector3 GroundPositionFromSensor(BadmintonPlayerFrame player)
         {
             float virtualZ = player.VirtualPosition.z;

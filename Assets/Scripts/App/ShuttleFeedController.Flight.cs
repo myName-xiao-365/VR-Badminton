@@ -526,6 +526,7 @@ namespace VRBadminton.App
                 return false;
             }
 
+            PlayHitAudio(lastHitResult.PowerQuality);
             ResetPlayerBackhandAfterHit();
             return true;
         }
